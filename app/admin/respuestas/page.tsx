@@ -4,12 +4,16 @@ import { getCurrentAdmin } from "@/lib/auth";
 import {
   BRANCH_LABEL,
   BRANCHES,
+  CAMP_AVAILABILITY_POINTS,
   CAMP_SEASONS,
   CAMP_SEASON_LABEL,
   CARGO_LABEL,
   CARGO_POINTS,
   COMISION_LABEL,
   COMISION_POINTS,
+  MTL_TITLE_POINTS,
+  SURVEY_POINTS_BUDGET,
+  SURVEY_VETO_COST,
   SURVEY_MTL_LABEL,
   type CargoRole,
   type ComisionRole,
@@ -173,7 +177,24 @@ export default async function AdminRespuestasPage() {
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-muted">Bandeja de respuestas</h2>
         <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
-          {responded.map((r) => (
+          {responded.map((r) => {
+            const cargoCount = (cargosByScouter.get(r.scouterId) ?? []).length;
+            const comisionCount = (comisionesByScouter.get(r.scouterId) ?? []).length;
+            const campSiCount = [r.availNavidad, r.availSemanaSanta, r.availVerano].filter(
+              Boolean,
+            ).length;
+            const mtlBonus = r.mtlSelfStatus === "si" ? MTL_TITLE_POINTS : 0;
+            const totalBudget =
+              SURVEY_POINTS_BUDGET +
+              cargoCount * CARGO_POINTS +
+              comisionCount * COMISION_POINTS +
+              campSiCount * CAMP_AVAILABILITY_POINTS +
+              mtlBonus;
+            const spentOnBranches = BRANCHES.reduce((sum, b) => sum + (r[b] ?? 0), 0);
+            const vetoCount = (exclusionByScouter.get(r.scouterId) ?? []).length;
+            const spentOnVetoes = vetoCount * SURVEY_VETO_COST;
+
+            return (
             <details key={r.scouterId} className="p-4">
               <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm">
                 <span className="font-medium text-foreground">{r.name}</span>
@@ -183,12 +204,18 @@ export default async function AdminRespuestasPage() {
               </summary>
               <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
                 <p className="text-xs text-muted">
-                  Cargos ({(cargosByScouter.get(r.scouterId) ?? []).length} × {CARGO_POINTS}pts):{" "}
+                  Budget:{" "}
+                  <span className="font-medium text-foreground">{totalBudget} pts</span> (secciones:{" "}
+                  {spentOnBranches}, vetos: {spentOnVetoes} · {vetoCount}, disponible:{" "}
+                  {totalBudget - spentOnBranches - spentOnVetoes})
+                </p>
+                <p className="text-xs text-muted">
+                  Cargos ({cargoCount} × {CARGO_POINTS}pts):{" "}
                   <span className="text-foreground">
                     {(cargosByScouter.get(r.scouterId) ?? []).join(", ") || "—"}
                   </span>
                   {" · "}
-                  Comisiones ({(comisionesByScouter.get(r.scouterId) ?? []).length} × {COMISION_POINTS}
+                  Comisiones ({comisionCount} × {COMISION_POINTS}
                   pts):{" "}
                   <span className="text-foreground">
                     {(comisionesByScouter.get(r.scouterId) ?? []).join(", ") || "—"}
@@ -255,7 +282,8 @@ export default async function AdminRespuestasPage() {
                 )}
               </div>
             </details>
-          ))}
+            );
+          })}
           {responded.length === 0 && (
             <p className="p-4 text-sm text-muted">Todavía no hay respuestas.</p>
           )}

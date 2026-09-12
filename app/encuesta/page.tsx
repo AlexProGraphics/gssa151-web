@@ -3,15 +3,8 @@ import { dbAll } from "@/lib/db";
 import { getCurrentScouter } from "@/lib/auth";
 import { submitSurvey } from "@/app/actions";
 import { PointsBudgetFields } from "@/components/PointsBudgetFields";
-import {
-  CAMP_FIELD_NAME,
-  CAMP_SEASONS,
-  CAMP_SEASON_LABEL,
-  SURVEY_MTL_LABEL,
-  SURVEY_POINTS_BUDGET,
-  SURVEY_VETO_COST,
-  type SurveyMtlStatus,
-} from "@/lib/types";
+import { SubmitCountdown } from "@/components/SubmitCountdown";
+import { SURVEY_POINTS_BUDGET, SURVEY_VETO_COST } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -79,20 +72,27 @@ export default async function EncuestaPage({
 
       {error === "budget_exceeded" && (
         <p className="rounded-md border border-branch-clan/40 bg-branch-clan/10 px-3 py-2 text-sm text-foreground">
-          Te has pasado del presupuesto de {SURVEY_POINTS_BUDGET} puntos
-          (secciones + vetos a {SURVEY_VETO_COST} puntos cada uno). Ajusta el
-          reparto y vuelve a enviar.
+          Te has pasado del budget (secciones + vetos a {SURVEY_VETO_COST}{" "}
+          puntos cada uno). Ajusta el reparto y vuelve a enviar.
+        </p>
+      )}
+
+      {error === "locked" && (
+        <p className="rounded-md border border-branch-clan/40 bg-branch-clan/10 px-3 py-2 text-sm text-foreground">
+          Todavía no se puede enviar la encuesta — espera a que se abra el
+          envío (mira la cuenta atrás al final del formulario).
         </p>
       )}
 
       <p className="text-sm text-muted">
         Tus respuestas son confidenciales: solo las ve el kraal/coordis para
-        montar la parrilla, nunca se muestran en la web pública. Tienes{" "}
-        {SURVEY_POINTS_BUDGET} puntos para repartir entre priorizar secciones
-        y vetar gente ({SURVEY_VETO_COST} puntos cada veto) — elegir con
-        quién trabajarías bien es gratis y sin límite. Comprometerte a un
-        cargo o comisión este curso te da puntos extra de presupuesto (más
-        abajo tienes el detalle).
+        montar la parrilla, nunca se muestran en la web pública. Tienes un
+        budget de {SURVEY_POINTS_BUDGET} puntos para repartir entre priorizar
+        secciones y vetar gente ({SURVEY_VETO_COST} puntos cada veto) —
+        elegir con quién trabajarías bien es gratis y sin límite. Comprometerte
+        a un cargo o comisión, tener disponibilidad en campamentos o tener ya
+        el título de MTL te da puntos extra de budget (más abajo tienes el
+        detalle).
       </p>
 
       <form action={submitSurvey} className="flex flex-col gap-6">
@@ -128,57 +128,26 @@ export default async function EncuestaPage({
           </div>
         </fieldset>
 
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-foreground">
-            Disponibilidad durante el año
-          </legend>
-          <div className="flex flex-col gap-2 text-sm text-foreground sm:flex-row sm:gap-4">
-            {CAMP_SEASONS.map((season) => (
-              <label key={season} className="flex items-center gap-2">
-                <input type="checkbox" name={CAMP_FIELD_NAME[season]} />
-                {CAMP_SEASON_LABEL[season]}
-              </label>
-            ))}
-          </div>
-          <textarea
-            name="availability"
-            rows={3}
-            placeholder="Explica tu disponibilidad durante el año (exámenes, viajes, otros compromisos…) o da más detalle"
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          />
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-foreground">
-            Título de monitor de tiempo libre (MTL)
-          </legend>
-          <div className="flex flex-col gap-2 text-sm text-foreground sm:flex-row sm:gap-4">
-            {(Object.keys(SURVEY_MTL_LABEL) as SurveyMtlStatus[]).map((status) => (
-              <label key={status} className="flex items-center gap-2">
-                <input type="radio" name="mtlSelfStatus" value={status} required />
-                {SURVEY_MTL_LABEL[status]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium text-foreground">
             Algo que nos quieras decir
           </span>
+          <p className="text-xs text-muted">
+            Cuéntanos con detalle todo con lo que te vas a comprometer este
+            año: qué unidad o unidades quieres, por qué, con qué grado de
+            implicación, y cualquier cosa más que creas que el kraal debería
+            saber para hacer la mejor parrilla posible. Cuanto mejor lo
+            expliques, más fácil nos lo pones.
+          </p>
           <textarea
             name="freeText"
-            rows={3}
+            rows={5}
+            placeholder="Ej: Este año quiero estar en Tropa, llevo 3 años ayudando ahí y me gustaría liderar el equipo. Puedo comprometerme a X horas/semana, estaré disponible casi todos los findes..."
             className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
           />
         </label>
 
-        <button
-          type="submit"
-          className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-background"
-        >
-          Enviar
-        </button>
+        <SubmitCountdown />
       </form>
     </main>
   );

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { generateBoardSuggestion, logout, scouterLogout } from "@/app/actions";
+import { generateBoardSuggestion, logout } from "@/app/actions";
 
 export function GenerateSuggestionButton() {
   const [isPending, startTransition] = useTransition();
@@ -34,25 +34,15 @@ export function GenerateSuggestionButton() {
   );
 }
 
-export function LogoutButton() {
+export function LogoutButton({ className }: { className?: string }) {
   return (
     <form action={logout}>
       <button
         type="submit"
-        className="rounded-md border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
-      >
-        Cerrar sesión
-      </button>
-    </form>
-  );
-}
-
-export function ScouterLogoutButton({ className }: { className?: string }) {
-  return (
-    <form action={scouterLogout}>
-      <button
-        type="submit"
-        className={className ?? "text-sm text-muted underline hover:text-foreground"}
+        className={
+          className ??
+          "rounded-md border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
+        }
       >
         Cerrar sesión
       </button>

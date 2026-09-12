@@ -86,6 +86,11 @@ async function migrate(db: Client) {
     await db.execute("DROP TABLE admin_users;");
   }
 
+  // La sesión de admin dejó de ser independiente de la de scouter (ahora
+  // todo el mundo usa scouter_sessions, admin es solo un permiso extra) —
+  // la vieja tabla `sessions` ya no se usa.
+  await db.execute("DROP TABLE IF EXISTS sessions;");
+
   // survey_responses ganó columnas nuevas (disponibilidad por temporada +
   // título de monitor autodeclarado) después de crearse — CREATE TABLE IF
   // NOT EXISTS no las añade a una tabla ya existente, así que se agregan
@@ -244,12 +249,6 @@ async function migrate(db: Client) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE TABLE IF NOT EXISTS sessions (
-      token TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
-      expires_at TEXT NOT NULL
-    );
-
     -- Una fila = esa persona ha "reclamado" su identidad de scouter. La PK
     -- sobre scouter_id es lo que impide que nadie más se registre como esa
     -- misma persona una vez ya está reclamada.
@@ -259,6 +258,9 @@ async function migrate(db: Client) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Sesión única para todo el mundo, admins incluidos: "admin" no tiene
+    -- su propia tabla de sesiones, es el mismo login de scouter con
+    -- permisos extra comprobados aparte (ver admin_users / getCurrentAdmin).
     CREATE TABLE IF NOT EXISTS scouter_sessions (
       token TEXT PRIMARY KEY,
       scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,

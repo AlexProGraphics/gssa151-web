@@ -2,10 +2,15 @@ import ExcelJS from "exceljs";
 import { dbAll } from "@/lib/db";
 import { getCurrentAdmin } from "@/lib/auth";
 import {
+  CAMP_AVAILABILITY_POINTS,
   CAMP_SEASON_LABEL,
   CARGO_LABEL,
+  CARGO_POINTS,
   COMISION_LABEL,
+  COMISION_POINTS,
+  MTL_TITLE_POINTS,
   SURVEY_MTL_LABEL,
+  SURVEY_POINTS_BUDGET,
   type CargoRole,
   type ComisionRole,
   type SurveyMtlStatus,
@@ -88,6 +93,8 @@ export async function GET() {
   sheet.columns = [
     { header: "Scouter", width: 22 },
     { header: "Enviado", width: 20 },
+    { header: "Budget total", width: 14 },
+    { header: "Vetos (cantidad)", width: 16 },
     { header: "Cargos", width: 24 },
     { header: "Comisiones", width: 30 },
     { header: "Cargos/comisiones — comentario", width: 30 },
@@ -109,9 +116,23 @@ export async function GET() {
   sheet.getRow(1).font = { bold: true };
 
   for (const r of responses) {
+    const cargoCount = (cargosByScouter.get(r.scouterId) ?? []).length;
+    const comisionCount = (comisionesByScouter.get(r.scouterId) ?? []).length;
+    const campSiCount = [r.availNavidad, r.availSemanaSanta, r.availVerano].filter(Boolean).length;
+    const mtlBonus = r.mtlSelfStatus === "si" ? MTL_TITLE_POINTS : 0;
+    const totalBudget =
+      SURVEY_POINTS_BUDGET +
+      cargoCount * CARGO_POINTS +
+      comisionCount * COMISION_POINTS +
+      campSiCount * CAMP_AVAILABILITY_POINTS +
+      mtlBonus;
+    const vetoCount = (exclusionByScouter.get(r.scouterId) ?? []).length;
+
     sheet.addRow([
       nameById.get(r.scouterId) ?? r.scouterId,
       new Date(r.submittedAt).toLocaleString("es-ES"),
+      totalBudget,
+      vetoCount,
       (cargosByScouter.get(r.scouterId) ?? []).join(", "),
       (comisionesByScouter.get(r.scouterId) ?? []).join(", "),
       r.rolesText ?? "",

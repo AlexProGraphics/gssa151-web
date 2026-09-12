@@ -7,16 +7,19 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { next } = await searchParams;
   const nextPath = typeof next === "string" ? next : "/";
 
-  const [scouterRows, registeredRows] = await Promise.all([
+  const [scouterRows, registeredRows, adminRows] = await Promise.all([
     dbAll<{ id: string; name: string }>(
       "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
     ),
     dbAll<{ scouter_id: string }>("SELECT scouter_id FROM scouter_users"),
+    dbAll<{ scouter_id: string }>("SELECT scouter_id FROM admin_users"),
   ]);
   // Los Row de libsql no son objetos planos — hay que plain-ificarlos antes
   // de pasarlos a un Client Component, o React se niega a serializarlos.
   const scouters = scouterRows.map((r) => ({ id: r.id, name: r.name }));
-  const registeredIds = registeredRows.map((r) => r.scouter_id);
+  // Los admins también cuentan como "ya registrados" — su contraseña es
+  // fija, nunca pasan por el formulario de "repite contraseña".
+  const registeredIds = [...registeredRows, ...adminRows].map((r) => r.scouter_id);
 
   return (
     <main className="mx-auto flex max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-24">

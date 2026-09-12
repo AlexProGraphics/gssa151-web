@@ -6,12 +6,9 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { dbAll, dbGet, dbRun } from "@/lib/db";
 import {
-  SCOUTER_SESSION_COOKIE,
   SESSION_COOKIE,
   adminSetScouterPassword,
-  createScouterSession,
   createSession,
-  deleteScouterSession,
   deleteSession,
   findAdminByScouterId,
   findScouterAccount,
@@ -23,11 +20,14 @@ import {
 import { generateSuggestion, type ExclusionPair, type ScoringInput } from "@/lib/scoring";
 import {
   BRANCHES,
+  CAMP_AVAILABILITY_POINTS,
   CARGO_POINTS,
   CARGO_ROLES,
   COMISION_POINTS,
   COMISION_ROLES,
+  MTL_TITLE_POINTS,
   SURVEY_POINTS_BUDGET,
+  SURVEY_SUBMIT_UNLOCK_AT,
   SURVEY_VETO_COST,
   type Branch,
   type UnitCategory,
@@ -35,14 +35,13 @@ import {
 
 /**
  * Login único para todo el mundo (el desplegable lista a los 33, admins
- * incluidos): si el nombre elegido es uno de los dos admins fijos y la
- * contraseña coincide con la suya, entra como admin. En cualquier otro
- * caso (incluidos Gabi/Alex Muñoz escribiendo su propia contraseña de
- * scouter, no la fija de admin) se trata como login/registro de scouter:
- * si nadie ha reclamado todavía esa identidad, la contraseña enviada la
- * fija; si ya está reclamada, tiene que coincidir con la que se fijó la
- * primera vez. Así cada admin conserva, con la misma casilla, acceso
- * independiente a su panel y a su propia encuesta/parrilla de scouter.
+ * incluidos): una sola sesión de scouter para cada persona. Si el nombre
+ * elegido es uno de los dos admins fijos, su contraseña es la fija de
+ * admin (no se auto-registra con ninguna otra) — el resto entra con la
+ * contraseña que fijó la primera vez que reclamó su identidad, o la fija
+ * si es la primera vez. "Ser admin" no crea una sesión aparte: es la misma
+ * sesión de scouter, con permisos extra que se comprueban después (ver
+ * getCurrentAdmin en lib/auth.ts).
  */
 export async function unifiedLogin(formData: FormData) {
   const scouterId = String(formData.get("scouterId") ?? "");
@@ -54,20 +53,6 @@ export async function unifiedLogin(formData: FormData) {
     redirect(`${next}?loginError=missing`);
   }
 
-  const admin = await findAdminByScouterId(scouterId);
-  if (admin && verifyPassword(password, admin.passwordHash)) {
-    const token = await createSession(admin.id);
-    const cookieStore = await cookies();
-    cookieStore.set(SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    });
-    redirect(next.startsWith("/admin") ? next : "/admin/board");
-  }
-
   const scouter = await dbGet<{ id: string }>(
     "SELECT id FROM scouters WHERE id = ? AND active = 1",
     [scouterId],
@@ -76,23 +61,33 @@ export async function unifiedLogin(formData: FormData) {
     redirect(`${next}?loginError=invalid`);
   }
 
-  const account = await findScouterAccount(scouterId);
-
-  if (!account) {
-    if (password.length < 6) {
-      redirect(`${next}?loginError=short`);
+  // Las identidades de admin tienen una contraseña fija (ver
+  // ensureFixedAdmins) — nunca pasan por el registro/verificación de
+  // scouter normal, para que nadie pueda "reclamar" a Gabi o Alex Muñoz
+  // con una contraseña propia.
+  const admin = await findAdminByScouterId(scouterId);
+  if (admin) {
+    if (!verifyPassword(password, admin.passwordHash)) {
+      redirect(`${next}?loginError=wrong`);
     }
-    if (password !== confirmPassword) {
-      redirect(`${next}?loginError=mismatch`);
+  } else {
+    const account = await findScouterAccount(scouterId);
+    if (!account) {
+      if (password.length < 6) {
+        redirect(`${next}?loginError=short`);
+      }
+      if (password !== confirmPassword) {
+        redirect(`${next}?loginError=mismatch`);
+      }
+      await registerScouterAccount(scouterId, password);
+    } else if (!verifyPassword(password, account.passwordHash)) {
+      redirect(`${next}?loginError=wrong`);
     }
-    await registerScouterAccount(scouterId, password);
-  } else if (!verifyPassword(password, account.passwordHash)) {
-    redirect(`${next}?loginError=wrong`);
   }
 
-  const token = await createScouterSession(scouterId);
+  const token = await createSession(scouterId);
   const cookieStore = await cookies();
-  cookieStore.set(SCOUTER_SESSION_COOKIE, token, {
+  cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -108,14 +103,6 @@ export async function logout() {
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (token) await deleteSession(token);
   cookieStore.delete(SESSION_COOKIE);
-  redirect("/");
-}
-
-export async function scouterLogout() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SCOUTER_SESSION_COOKIE)?.value;
-  if (token) await deleteScouterSession(token);
-  cookieStore.delete(SCOUTER_SESSION_COOKIE);
   redirect("/");
 }
 
@@ -321,18 +308,27 @@ export async function generateBoardSuggestion() {
 export async function submitSurvey(formData: FormData) {
   const { scouterId } = await requireScouter();
 
+  // Mientras se sigue ajustando el sistema de budget, el envío real queda
+  // bloqueado en servidor hasta SURVEY_SUBMIT_UNLOCK_AT — el botón del
+  // cliente ya lo deshabilita, pero esto es lo que de verdad lo impide si
+  // alguien se lo salta a mano.
+  if (Date.now() < new Date(SURVEY_SUBMIT_UNLOCK_AT).getTime()) {
+    redirect("/encuesta?error=locked");
+  }
+
   const priorityPref = formData.get("priorityPref");
   const availability = String(formData.get("availability") ?? "").trim() || null;
   const freeText = String(formData.get("freeText") ?? "").trim() || null;
-  const availNavidad = formData.get("availNavidad") ? 1 : 0;
-  const availSemanaSanta = formData.get("availSemanaSanta") ? 1 : 0;
-  const availVerano = formData.get("availVerano") ? 1 : 0;
+  const availNavidad = formData.get("availNavidad") === "si" ? 1 : 0;
+  const availSemanaSanta = formData.get("availSemanaSanta") === "si" ? 1 : 0;
+  const availVerano = formData.get("availVerano") === "si" ? 1 : 0;
   const mtlSelfStatus = String(formData.get("mtlSelfStatus") ?? "").trim() || null;
   const rolesText = String(formData.get("rolesText") ?? "").trim() || null;
 
-  // Cargos/comisiones AMPLÍAN el presupuesto (nunca lo reducen) — cada uno
-  // solo cuenta si es uno de los válidos, para no dejar que un valor
-  // manipulado en el formulario infle el presupuesto de mentira.
+  // Cargos/comisiones/disponibilidad de campamentos/título MTL AMPLÍAN el
+  // budget (nunca lo reducen) — cada uno solo cuenta si es uno de los
+  // válidos, para no dejar que un valor manipulado en el formulario infle
+  // el budget de mentira.
   const cargoSet = new Set<string>(CARGO_ROLES);
   const comisionSet = new Set<string>(COMISION_ROLES);
   const cargoIds = formData.getAll("cargos").map(String).filter((id) => cargoSet.has(id));
@@ -340,8 +336,14 @@ export async function submitSurvey(formData: FormData) {
     .getAll("comisiones")
     .map(String)
     .filter((id) => comisionSet.has(id));
+  const campSiCount = [availNavidad, availSemanaSanta, availVerano].filter((v) => v === 1).length;
+  const mtlBonus = mtlSelfStatus === "si" ? MTL_TITLE_POINTS : 0;
   const totalBudget =
-    SURVEY_POINTS_BUDGET + cargoIds.length * CARGO_POINTS + comisionIds.length * COMISION_POINTS;
+    SURVEY_POINTS_BUDGET +
+    cargoIds.length * CARGO_POINTS +
+    comisionIds.length * COMISION_POINTS +
+    campSiCount * CAMP_AVAILABILITY_POINTS +
+    mtlBonus;
 
   // Puntos por sección: presupuesto compartido con los vetos.
   const pref: Record<Branch, number> = {} as Record<Branch, number>;

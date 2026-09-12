@@ -106,12 +106,29 @@ export const COMISION_LABEL: Record<ComisionRole, string> = {
   peg: "PEG",
 };
 
-// Un cargo aporta el doble de presupuesto que una comisión — recompensa
+// Un cargo aporta el doble de budget que una comisión — recompensa
 // el esfuerzo sin ser el único factor. Solo informativo para el algoritmo
 // de sugerencia (el kraal lo valora a mano); aquí solo amplían el
-// presupuesto que el propio scouter reparte en su encuesta.
+// budget que el propio scouter reparte en su encuesta.
 export const CARGO_POINTS = 5;
 export const COMISION_POINTS = 3;
+
+// Cada campamento con disponibilidad confirmada ("Sí") también amplía el
+// budget — igual mecánica que cargos/comisiones.
+export const CAMP_AVAILABILITY_POINTS = 2;
+
+// Fecha/hora hasta la que la web sigue "en construcción" mientras se termina
+// de pulir la encuesta y el sistema de budget — un banner lo avisa en todas
+// las páginas (ver MaintenanceBanner), y el envío de la encuesta comparte
+// exactamente el mismo límite: no tendría sentido abrir el envío antes de
+// que termine el propio aviso de "en construcción".
+export const SITE_MAINTENANCE_UNTIL = "2026-09-13T12:00:00+02:00";
+
+// El botón de enviar queda bloqueado hasta esta fecha mientras se sigue
+// ajustando el sistema de budget — se comparte entre el componente cliente
+// (cuenta atrás) y submitSurvey (bloqueo real en servidor, por si alguien
+// se salta el botón deshabilitado).
+export const SURVEY_SUBMIT_UNLOCK_AT = SITE_MAINTENANCE_UNTIL;
 
 export type PriorityPref = "seccion" | "equipo";
 
@@ -141,6 +158,9 @@ export const SURVEY_MTL_LABEL: Record<SurveyMtlStatus, string> = {
   en_curso: "Me lo voy a sacar este curso (llega para verano)",
   no: "No lo tengo",
 };
+
+// Tener el título ya sacado (no "en curso") también amplía el budget.
+export const MTL_TITLE_POINTS = 5;
 
 /** Public, non-confidential shape — safe to send to unauthenticated clients. */
 export interface PublicUnit {

@@ -24,9 +24,8 @@ export function MaintenanceBanner() {
 
   return (
     <div className="border-b border-accent/40 bg-accent/10 px-6 py-2 text-center text-sm text-foreground">
-      <strong>Web en construcción:</strong> estamos terminando de pulir la
-      encuesta y el sistema de budget — todo estará cerrado mañana a las
-      12:00.
+      <strong>Web en construcción:</strong> todavía se está terminando la
+      encuesta — mañana se abre la web a las 12:00.
     </div>
   );
 }

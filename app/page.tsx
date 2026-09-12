@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { FleurDeLis } from "@/components/FleurDeLis";
 
 const FEATURES = [
   {
@@ -23,12 +22,12 @@ export default function Home() {
   return (
     <main className="mx-auto flex max-w-4xl flex-1 flex-col gap-16 px-6 py-16 sm:py-24">
       <div className="flex flex-col items-center gap-6 text-center">
-        <FleurDeLis className="h-28 w-28 sm:h-36 sm:w-36" />
-        <div className="flex flex-col gap-3">
-          <p className="text-sm font-medium tracking-wide text-accent">
+        <div className="flex flex-col gap-4">
+          <p className="inline-flex items-center justify-center gap-2 self-center rounded-full border border-border px-3 py-1 text-xs font-medium uppercase tracking-widest text-muted">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
             Grupo Scout San Agustín
           </p>
-          <h1 className="text-5xl font-semibold tracking-tight text-foreground sm:text-6xl">
+          <h1 className="bg-gradient-to-r from-accent via-[#8fc4ff] to-branch-apoyo bg-clip-text text-7xl font-extrabold tracking-tight text-transparent sm:text-8xl">
             GSSA 151
           </h1>
           <p className="mx-auto max-w-xl text-lg text-muted">

@@ -14,14 +14,19 @@ export async function SiteHeader() {
   // El widget deja acceder al rol que aún falte (admin y scouter son
   // sesiones independientes) — solo se oculta cuando ya tienes las dos.
   let scouters: { id: string; name: string }[] = [];
+  let registeredIds: string[] = [];
   if (!admin || !scouter) {
-    const rows = await dbAll<{ id: string; name: string }>(
-      "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
-    );
+    const [rows, registeredRows] = await Promise.all([
+      dbAll<{ id: string; name: string }>(
+        "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
+      ),
+      dbAll<{ scouter_id: string }>("SELECT scouter_id FROM scouter_users"),
+    ]);
     // Los Row de libsql (como antes los de node:sqlite) no son objetos
     // planos — hay que plain-ificarlos antes de pasarlos a un Client
     // Component, o React se niega a serializarlos como props.
     scouters = rows.map((r) => ({ id: r.id, name: r.name }));
+    registeredIds = registeredRows.map((r) => r.scouter_id);
   }
 
   return (
@@ -63,7 +68,7 @@ export async function SiteHeader() {
         )}
         {(!admin || !scouter) && (
           <Suspense fallback={null}>
-            <LoginWidget scouters={scouters} />
+            <LoginWidget scouters={scouters} registeredIds={registeredIds} />
           </Suspense>
         )}
       </div>

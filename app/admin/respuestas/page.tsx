@@ -6,7 +6,13 @@ import {
   BRANCHES,
   CAMP_SEASONS,
   CAMP_SEASON_LABEL,
+  CARGO_LABEL,
+  CARGO_POINTS,
+  COMISION_LABEL,
+  COMISION_POINTS,
   SURVEY_MTL_LABEL,
+  type CargoRole,
+  type ComisionRole,
   type PriorityPref,
   type SurveyMtlStatus,
 } from "@/lib/types";
@@ -45,6 +51,7 @@ export default async function AdminRespuestasPage() {
     availSemanaSanta: number;
     availVerano: number;
     mtlSelfStatus: SurveyMtlStatus | null;
+    rolesText: string | null;
     castores: number | null;
     lobatos: number | null;
     tropa: number | null;
@@ -54,11 +61,27 @@ export default async function AdminRespuestasPage() {
   }>(
     `SELECT scouter_id AS scouterId, priority_pref AS priorityPref, availability, free_text AS freeText,
             avail_navidad AS availNavidad, avail_semana_santa AS availSemanaSanta,
-            avail_verano AS availVerano, mtl_self_status AS mtlSelfStatus,
+            avail_verano AS availVerano, mtl_self_status AS mtlSelfStatus, roles_text AS rolesText,
             pref_castores AS castores, pref_lobatos AS lobatos, pref_tropa AS tropa,
             pref_escultas AS escultas, pref_clan AS clan, submitted_at AS submittedAt
      FROM survey_responses WHERE source = 'web'`,
   );
+
+  const roleRows = await dbAll<{ scouterId: string; roleType: "cargo" | "comision"; roleName: string }>(
+    "SELECT scouter_id AS scouterId, role_type AS roleType, role_name AS roleName FROM survey_roles",
+  );
+  const cargosByScouter = new Map<string, string[]>();
+  const comisionesByScouter = new Map<string, string[]>();
+  for (const row of roleRows) {
+    const target = row.roleType === "cargo" ? cargosByScouter : comisionesByScouter;
+    const label =
+      row.roleType === "cargo"
+        ? CARGO_LABEL[row.roleName as CargoRole]
+        : COMISION_LABEL[row.roleName as ComisionRole];
+    const list = target.get(row.scouterId) ?? [];
+    list.push(label ?? row.roleName);
+    target.set(row.scouterId, list);
+  }
 
   const compatRows = await dbAll<{
     scouterId: string;
@@ -159,6 +182,23 @@ export default async function AdminRespuestasPage() {
                 </span>
               </summary>
               <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+                <p className="text-xs text-muted">
+                  Cargos ({(cargosByScouter.get(r.scouterId) ?? []).length} × {CARGO_POINTS}pts):{" "}
+                  <span className="text-foreground">
+                    {(cargosByScouter.get(r.scouterId) ?? []).join(", ") || "—"}
+                  </span>
+                  {" · "}
+                  Comisiones ({(comisionesByScouter.get(r.scouterId) ?? []).length} × {COMISION_POINTS}
+                  pts):{" "}
+                  <span className="text-foreground">
+                    {(comisionesByScouter.get(r.scouterId) ?? []).join(", ") || "—"}
+                  </span>
+                </p>
+                {r.rolesText && (
+                  <p className="rounded-md border border-border bg-surface p-2 text-xs text-foreground">
+                    “{r.rolesText}”
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2 text-xs text-muted sm:grid-cols-5">
                   {BRANCHES.map((branch) => (
                     <div key={branch}>

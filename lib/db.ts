@@ -121,6 +121,9 @@ async function migrate(db: Client) {
         "ALTER TABLE survey_responses ADD COLUMN source TEXT NOT NULL DEFAULT 'seed';",
       );
     }
+    if (!surveyCols.has("roles_text")) {
+      await db.execute("ALTER TABLE survey_responses ADD COLUMN roles_text TEXT;");
+    }
   }
 
   await db.executeMultiple(`
@@ -184,7 +187,19 @@ async function migrate(db: Client) {
       -- 'seed' = volcado inicial del Excel (no una respuesta real por la
       -- encuesta), 'web' = enviado de verdad desde /encuesta.
       source TEXT NOT NULL DEFAULT 'web',
+      roles_text TEXT,
       submitted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Cargos/comisiones que el scouter marca en la encuesta — solo
+    -- informativo (no toca lib/scoring.ts), amplía el presupuesto de
+    -- puntos que reparte en la propia encuesta (ver CARGO_POINTS/
+    -- COMISION_POINTS en lib/types.ts).
+    CREATE TABLE IF NOT EXISTS survey_roles (
+      scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,
+      role_type TEXT NOT NULL,
+      role_name TEXT NOT NULL,
+      PRIMARY KEY (scouter_id, role_type, role_name)
     );
 
     -- Confidencial.

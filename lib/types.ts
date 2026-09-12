@@ -45,10 +45,73 @@ export const BRANCH_LABEL: Record<Branch, string> = {
 };
 
 // Sistema de puntos de la encuesta: cada scouter reparte un presupuesto
-// fijo entre secciones (prioridad) y vetos (incompatibilidades) — elegir
-// compatibles sigue siendo gratis e ilimitado.
+// entre secciones (prioridad) y vetos (incompatibilidades) — elegir
+// compatibles sigue siendo gratis e ilimitado. El presupuesto base es
+// SURVEY_POINTS_BUDGET, pero comprometerse a cargos/comisiones lo AMPLÍA
+// (ver CARGO_POINTS/COMISION_POINTS) — nunca lo reduce.
 export const SURVEY_POINTS_BUDGET = 100;
 export const SURVEY_VETO_COST = 10;
+
+export type CargoRole = "tesoreria" | "intendencia" | "secretaria" | "campamentos";
+
+export const CARGO_ROLES: CargoRole[] = [
+  "tesoreria",
+  "intendencia",
+  "secretaria",
+  "campamentos",
+];
+
+export const CARGO_LABEL: Record<CargoRole, string> = {
+  tesoreria: "Tesorería",
+  intendencia: "Intendencia",
+  secretaria: "Secretaría",
+  campamentos: "Campamentos",
+};
+
+export type ComisionRole =
+  | "socorrismo"
+  | "juegos_grupo"
+  | "formaciones"
+  | "menu"
+  | "animacion"
+  | "comision_catolica"
+  | "espacio_seguro"
+  | "tecnomision"
+  | "cuna"
+  | "peg";
+
+export const COMISION_ROLES: ComisionRole[] = [
+  "socorrismo",
+  "juegos_grupo",
+  "formaciones",
+  "menu",
+  "animacion",
+  "comision_catolica",
+  "espacio_seguro",
+  "tecnomision",
+  "cuna",
+  "peg",
+];
+
+export const COMISION_LABEL: Record<ComisionRole, string> = {
+  socorrismo: "Socorrismo",
+  juegos_grupo: "Juegos de Grupo",
+  formaciones: "Formaciones",
+  menu: "Menú",
+  animacion: "Animación",
+  comision_catolica: "Comisión Católica",
+  espacio_seguro: "Espacio Seguro",
+  tecnomision: "Tecnomisión",
+  cuna: "Cuna",
+  peg: "PEG",
+};
+
+// Un cargo aporta el doble de presupuesto que una comisión — recompensa
+// el esfuerzo sin ser el único factor. Solo informativo para el algoritmo
+// de sugerencia (el kraal lo valora a mano); aquí solo amplían el
+// presupuesto que el propio scouter reparte en su encuesta.
+export const CARGO_POINTS = 5;
+export const COMISION_POINTS = 3;
 
 export type PriorityPref = "seccion" | "equipo";
 
@@ -120,6 +183,7 @@ export interface SurveyResponse {
   availSemanaSanta: boolean;
   availVerano: boolean;
   mtlSelfStatus: SurveyMtlStatus | null;
+  rolesText: string | null;
   prefCastores: number | null;
   prefLobatos: number | null;
   prefTropa: number | null;

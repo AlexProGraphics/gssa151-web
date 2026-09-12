@@ -1,24 +1,22 @@
 import { dbAll } from "@/lib/db";
-import { unifiedLogin } from "@/app/actions";
+import { LoginForm } from "@/components/LoginForm";
 
 export const dynamic = "force-dynamic";
 
-const ERROR_MESSAGE: Record<string, string> = {
-  missing: "Elige tu nombre y escribe una contraseña.",
-  invalid: "Esa persona no existe o no está activa.",
-  wrong: "Contraseña incorrecta.",
-  short: "La contraseña debe tener al menos 6 caracteres.",
-  mismatch: "Las dos contraseñas no coinciden.",
-};
-
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const { next, loginError } = await searchParams;
+  const { next } = await searchParams;
   const nextPath = typeof next === "string" ? next : "/";
-  const errorMessage = typeof loginError === "string" ? ERROR_MESSAGE[loginError] : undefined;
 
-  const scouters = await dbAll<{ id: string; name: string }>(
-    "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
-  );
+  const [scouterRows, registeredRows] = await Promise.all([
+    dbAll<{ id: string; name: string }>(
+      "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
+    ),
+    dbAll<{ scouter_id: string }>("SELECT scouter_id FROM scouter_users"),
+  ]);
+  // Los Row de libsql no son objetos planos — hay que plain-ificarlos antes
+  // de pasarlos a un Client Component, o React se niega a serializarlos.
+  const scouters = scouterRows.map((r) => ({ id: r.id, name: r.name }));
+  const registeredIds = registeredRows.map((r) => r.scouter_id);
 
   return (
     <main className="mx-auto flex max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-24">
@@ -30,44 +28,13 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           Alex Muñoz) entran igual, con su contraseña de admin.
         </p>
       </div>
-      <form action={unifiedLogin} className="flex flex-col gap-3">
-        <input type="hidden" name="next" value={nextPath} />
-        <select
-          name="scouterId"
-          required
-          defaultValue=""
-          className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-        >
-          <option value="" disabled>
-            Elige tu nombre
-          </option>
-          {scouters.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="password"
-          name="password"
-          required
-          placeholder="Contraseña"
-          className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-        />
-        <input
-          type="password"
-          name="confirmPassword"
-          placeholder="Repite la contraseña (solo tu 1ª vez)"
-          className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-        />
-        {errorMessage && <p className="text-sm text-branch-clan">{errorMessage}</p>}
-        <button
-          type="submit"
-          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-background"
-        >
-          Entrar
-        </button>
-      </form>
+      <LoginForm
+        scouters={scouters}
+        registeredIds={registeredIds}
+        nextPath={nextPath}
+        className="flex flex-col gap-3"
+        fieldClassName="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+      />
     </main>
   );
 }

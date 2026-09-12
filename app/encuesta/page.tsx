@@ -40,10 +40,15 @@ export default async function EncuestaPage({
     );
   }
 
-  const scouters = await dbAll<{ id: string; name: string }>(
+  const scouterRows = await dbAll<{ id: string; name: string }>(
     "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
   );
-  const otherScouters = scouters.filter((s) => s.id !== currentScouter.scouterId);
+  // Los Row de libsql no son objetos planos — hay que plain-ificarlos antes
+  // de pasarlos a un Client Component (PointsBudgetFields), o React se
+  // niega a serializarlos.
+  const otherScouters = scouterRows
+    .filter((s) => s.id !== currentScouter.scouterId)
+    .map((s) => ({ id: s.id, name: s.name }));
 
   return (
     <main className="mx-auto flex max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -85,7 +90,9 @@ export default async function EncuestaPage({
         montar la parrilla, nunca se muestran en la web pública. Tienes{" "}
         {SURVEY_POINTS_BUDGET} puntos para repartir entre priorizar secciones
         y vetar gente ({SURVEY_VETO_COST} puntos cada veto) — elegir con
-        quién trabajarías bien es gratis y sin límite.
+        quién trabajarías bien es gratis y sin límite. Comprometerte a un
+        cargo o comisión este curso te da puntos extra de presupuesto (más
+        abajo tienes el detalle).
       </p>
 
       <form action={submitSurvey} className="flex flex-col gap-6">

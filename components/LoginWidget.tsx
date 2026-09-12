@@ -1,78 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { unifiedLogin } from "@/app/actions";
+import { LoginForm } from "./LoginForm";
 
-const ERROR_MESSAGE: Record<string, string> = {
-  missing: "Elige tu nombre y escribe una contraseña.",
-  invalid: "Esa persona no existe o no está activa.",
-  wrong: "Contraseña incorrecta.",
-  short: "La contraseña debe tener al menos 6 caracteres.",
-  mismatch: "Las dos contraseñas no coinciden.",
-};
+const PANEL_WIDTH = 256;
+const MARGIN = 16;
+const GAP = 8;
 
-export function LoginWidget({ scouters }: { scouters: { id: string; name: string }[] }) {
+export function LoginWidget({
+  scouters,
+  registeredIds,
+}: {
+  scouters: { id: string; name: string }[];
+  registeredIds: string[];
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const error = searchParams.get("loginError");
-  const [open, setOpen] = useState(Boolean(error));
+  const [open, setOpen] = useState(Boolean(searchParams.get("loginError")));
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // El botón puede acabar en cualquier sitio de la cabecera según cómo
+  // haga wrap en pantallas estrechas — anclar el panel con CSS relativo al
+  // botón (centrado, right-0…) se salía de la pantalla en el móvil. Medir
+  // la posición real y topar contra los bordes del viewport es lo único
+  // que funciona seguro sea cual sea el ancho.
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return;
+
+    function updatePosition() {
+      const rect = buttonRef.current!.getBoundingClientRect();
+      const panelWidth = Math.min(PANEL_WIDTH, window.innerWidth - MARGIN * 2);
+      const left = Math.min(
+        Math.max(MARGIN, rect.left),
+        window.innerWidth - panelWidth - MARGIN,
+      );
+      setPos({ top: rect.bottom + GAP, left });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => window.removeEventListener("resize", updatePosition);
+  }, [open]);
 
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:border-accent"
       >
         Iniciar sesión
       </button>
-      {open && (
-        <form
-          action={unifiedLogin}
-          className="absolute right-0 top-full z-10 mt-2 flex w-64 flex-col gap-2 rounded-md border border-border bg-surface p-3 shadow-lg"
-        >
-          <input type="hidden" name="next" value={pathname} />
-          <select
-            name="scouterId"
-            required
-            defaultValue=""
-            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-          >
-            <option value="" disabled>
-              Elige tu nombre
-            </option>
-            {scouters.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <input
-            type="password"
-            name="password"
-            required
-            placeholder="Contraseña"
-            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-          />
-          <input
-            type="password"
-            name="confirmPassword"
-            placeholder="Repite (solo tu 1ª vez)"
-            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-          />
-          {error && (
-            <p className="text-xs text-branch-clan">
-              {ERROR_MESSAGE[error] ?? "Ha ocurrido un error."}
-            </p>
-          )}
-          <button
-            type="submit"
-            className="rounded-md bg-accent px-2 py-1.5 text-sm font-medium text-background"
-          >
-            Entrar
-          </button>
-        </form>
+      {open && pos && (
+        <LoginForm
+          scouters={scouters}
+          registeredIds={registeredIds}
+          nextPath={pathname}
+          className="fixed z-20 flex w-64 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-md border border-border bg-surface p-3 shadow-lg"
+          style={{ top: pos.top, left: pos.left }}
+        />
       )}
     </div>
   );

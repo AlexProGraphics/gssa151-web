@@ -1,7 +1,15 @@
 import ExcelJS from "exceljs";
 import { dbAll } from "@/lib/db";
 import { getCurrentAdmin } from "@/lib/auth";
-import { CAMP_SEASON_LABEL, SURVEY_MTL_LABEL, type SurveyMtlStatus } from "@/lib/types";
+import {
+  CAMP_SEASON_LABEL,
+  CARGO_LABEL,
+  COMISION_LABEL,
+  SURVEY_MTL_LABEL,
+  type CargoRole,
+  type ComisionRole,
+  type SurveyMtlStatus,
+} from "@/lib/types";
 
 // Exporta las respuestas REALES de /encuesta (source = 'web') para que el
 // kraal las analice fuera de la web. El volcado inicial del Excel
@@ -27,6 +35,7 @@ export async function GET() {
     availSemanaSanta: number;
     availVerano: number;
     mtlSelfStatus: SurveyMtlStatus | null;
+    rolesText: string | null;
     castores: number | null;
     lobatos: number | null;
     tropa: number | null;
@@ -36,7 +45,7 @@ export async function GET() {
   }>(
     `SELECT scouter_id AS scouterId, priority_pref AS priorityPref, availability, free_text AS freeText,
             avail_navidad AS availNavidad, avail_semana_santa AS availSemanaSanta,
-            avail_verano AS availVerano, mtl_self_status AS mtlSelfStatus,
+            avail_verano AS availVerano, mtl_self_status AS mtlSelfStatus, roles_text AS rolesText,
             pref_castores AS castores, pref_lobatos AS lobatos, pref_tropa AS tropa,
             pref_escultas AS escultas, pref_clan AS clan, submitted_at AS submittedAt
      FROM survey_responses WHERE source = 'web'
@@ -58,11 +67,30 @@ export async function GET() {
     target.set(row.scouterId, list);
   }
 
+  const roleRows = await dbAll<{ scouterId: string; roleType: "cargo" | "comision"; roleName: string }>(
+    "SELECT scouter_id AS scouterId, role_type AS roleType, role_name AS roleName FROM survey_roles",
+  );
+  const cargosByScouter = new Map<string, string[]>();
+  const comisionesByScouter = new Map<string, string[]>();
+  for (const row of roleRows) {
+    const target = row.roleType === "cargo" ? cargosByScouter : comisionesByScouter;
+    const label =
+      row.roleType === "cargo"
+        ? CARGO_LABEL[row.roleName as CargoRole]
+        : COMISION_LABEL[row.roleName as ComisionRole];
+    const list = target.get(row.scouterId) ?? [];
+    list.push(label ?? row.roleName);
+    target.set(row.scouterId, list);
+  }
+
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Respuestas encuesta");
   sheet.columns = [
     { header: "Scouter", width: 22 },
     { header: "Enviado", width: 20 },
+    { header: "Cargos", width: 24 },
+    { header: "Comisiones", width: 30 },
+    { header: "Cargos/comisiones — comentario", width: 30 },
     { header: "Puntos Castores", width: 18 },
     { header: "Puntos Lobatos", width: 18 },
     { header: "Puntos Tropa", width: 16 },
@@ -84,6 +112,9 @@ export async function GET() {
     sheet.addRow([
       nameById.get(r.scouterId) ?? r.scouterId,
       new Date(r.submittedAt).toLocaleString("es-ES"),
+      (cargosByScouter.get(r.scouterId) ?? []).join(", "),
+      (comisionesByScouter.get(r.scouterId) ?? []).join(", "),
+      r.rolesText ?? "",
       r.castores,
       r.lobatos,
       r.tropa,

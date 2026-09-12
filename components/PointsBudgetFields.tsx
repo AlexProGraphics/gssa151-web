@@ -1,13 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { BRANCHES, BRANCH_LABEL, SURVEY_POINTS_BUDGET, SURVEY_VETO_COST, type Branch } from "@/lib/types";
+import {
+  BRANCHES,
+  BRANCH_LABEL,
+  CARGO_LABEL,
+  CARGO_POINTS,
+  CARGO_ROLES,
+  COMISION_LABEL,
+  COMISION_POINTS,
+  COMISION_ROLES,
+  SURVEY_POINTS_BUDGET,
+  SURVEY_VETO_COST,
+  type Branch,
+} from "@/lib/types";
 
 export function PointsBudgetFields({
   otherScouters,
 }: {
   otherScouters: { id: string; name: string }[];
 }) {
+  const [cargos, setCargos] = useState<Set<string>>(new Set());
+  const [comisiones, setComisiones] = useState<Set<string>>(new Set());
   const [points, setPoints] = useState<Record<Branch, number>>({
     castores: 0,
     lobatos: 0,
@@ -17,13 +31,25 @@ export function PointsBudgetFields({
   });
   const [vetoed, setVetoed] = useState<Set<string>>(new Set());
 
+  // Cargos/comisiones AMPLÍAN el presupuesto en vez de gastarlo — recompensa
+  // el compromiso sin quitarle margen a quien también quiere priorizar
+  // sección o vetar a alguien.
+  const extraBudget = cargos.size * CARGO_POINTS + comisiones.size * COMISION_POINTS;
+  const totalBudget = SURVEY_POINTS_BUDGET + extraBudget;
   const spentOnBranches = BRANCHES.reduce((sum, b) => sum + points[b], 0);
   const spentOnVetoes = vetoed.size * SURVEY_VETO_COST;
-  const remaining = SURVEY_POINTS_BUDGET - spentOnBranches - spentOnVetoes;
+  const remaining = totalBudget - spentOnBranches - spentOnVetoes;
+
+  function toggleInSet(set: Set<string>, setSet: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSet(next);
+  }
 
   function setBranch(branch: Branch, value: number) {
     const others = BRANCHES.filter((b) => b !== branch).reduce((sum, b) => sum + points[b], 0);
-    const maxAllowed = Math.max(0, SURVEY_POINTS_BUDGET - spentOnVetoes - others);
+    const maxAllowed = Math.max(0, totalBudget - spentOnVetoes - others);
     const clamped = Math.min(Math.max(0, Math.round(value)), maxAllowed);
     setPoints((p) => ({ ...p, [branch]: clamped }));
   }
@@ -42,6 +68,52 @@ export function PointsBudgetFields({
 
   return (
     <div className="flex flex-col gap-4">
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium text-foreground">
+          Cargos y comisiones este curso
+        </legend>
+        <p className="text-xs text-muted">
+          Marca en los que vas a estar (o quieres apuntarte) este curso. Cada
+          cargo suma {CARGO_POINTS} puntos y cada comisión {COMISION_POINTS}{" "}
+          al presupuesto de más abajo — no te quita nada, solo te da más
+          margen para priorizar sección o vetar a alguien.
+        </p>
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+          {CARGO_ROLES.map((role) => (
+            <label key={role} className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                name="cargos"
+                value={role}
+                checked={cargos.has(role)}
+                onChange={() => toggleInSet(cargos, setCargos, role)}
+              />
+              {CARGO_LABEL[role]}
+            </label>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+          {COMISION_ROLES.map((role) => (
+            <label key={role} className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                name="comisiones"
+                value={role}
+                checked={comisiones.has(role)}
+                onChange={() => toggleInSet(comisiones, setComisiones, role)}
+              />
+              {COMISION_LABEL[role]}
+            </label>
+          ))}
+        </div>
+        <textarea
+          name="rolesText"
+          rows={3}
+          placeholder="Cuéntanos qué quieres hacer en esos cargos/comisiones: grado de compromiso y esfuerzo, si ya has estado antes, si vas a liderarlo, cuántos años llevas..."
+          className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
+        />
+      </fieldset>
+
       <div
         className={`rounded-md border px-3 py-2 text-sm font-medium ${
           remaining < 0
@@ -49,7 +121,12 @@ export function PointsBudgetFields({
             : "border-border text-foreground"
         }`}
       >
-        Puntos disponibles: {remaining} / {SURVEY_POINTS_BUDGET}
+        Puntos disponibles: {remaining} / {totalBudget}
+        {extraBudget > 0 && (
+          <span className="ml-1 font-normal text-muted">
+            ({SURVEY_POINTS_BUDGET} base + {extraBudget} por cargos/comisiones)
+          </span>
+        )}
       </div>
 
       <fieldset className="flex flex-col gap-3">
@@ -63,7 +140,7 @@ export function PointsBudgetFields({
               <input
                 type="number"
                 min={0}
-                max={SURVEY_POINTS_BUDGET}
+                max={totalBudget}
                 value={points[branch]}
                 onChange={(e) => setBranch(branch, Number(e.target.value) || 0)}
                 className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-right text-sm text-foreground"
@@ -72,7 +149,7 @@ export function PointsBudgetFields({
             <input
               type="range"
               min={0}
-              max={SURVEY_POINTS_BUDGET}
+              max={totalBudget}
               value={points[branch]}
               onChange={(e) => setBranch(branch, Number(e.target.value))}
               className="w-full"

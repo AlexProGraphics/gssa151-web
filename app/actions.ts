@@ -23,6 +23,10 @@ import {
 import { generateSuggestion, type ExclusionPair, type ScoringInput } from "@/lib/scoring";
 import {
   BRANCHES,
+  CARGO_POINTS,
+  CARGO_ROLES,
+  COMISION_POINTS,
+  COMISION_ROLES,
   SURVEY_POINTS_BUDGET,
   SURVEY_VETO_COST,
   type Branch,
@@ -324,18 +328,32 @@ export async function submitSurvey(formData: FormData) {
   const availSemanaSanta = formData.get("availSemanaSanta") ? 1 : 0;
   const availVerano = formData.get("availVerano") ? 1 : 0;
   const mtlSelfStatus = String(formData.get("mtlSelfStatus") ?? "").trim() || null;
+  const rolesText = String(formData.get("rolesText") ?? "").trim() || null;
 
-  // Puntos por sección: 0-100, presupuesto compartido con los vetos.
+  // Cargos/comisiones AMPLÍAN el presupuesto (nunca lo reducen) — cada uno
+  // solo cuenta si es uno de los válidos, para no dejar que un valor
+  // manipulado en el formulario infle el presupuesto de mentira.
+  const cargoSet = new Set<string>(CARGO_ROLES);
+  const comisionSet = new Set<string>(COMISION_ROLES);
+  const cargoIds = formData.getAll("cargos").map(String).filter((id) => cargoSet.has(id));
+  const comisionIds = formData
+    .getAll("comisiones")
+    .map(String)
+    .filter((id) => comisionSet.has(id));
+  const totalBudget =
+    SURVEY_POINTS_BUDGET + cargoIds.length * CARGO_POINTS + comisionIds.length * COMISION_POINTS;
+
+  // Puntos por sección: presupuesto compartido con los vetos.
   const pref: Record<Branch, number> = {} as Record<Branch, number>;
   for (const branch of BRANCHES) {
     const raw = Number(formData.get(`pref_${branch}`) ?? 0) || 0;
-    pref[branch] = Math.min(SURVEY_POINTS_BUDGET, Math.max(0, Math.round(raw)));
+    pref[branch] = Math.min(totalBudget, Math.max(0, Math.round(raw)));
   }
 
   const excludeIds = formData.getAll("excludeWith").map(String);
   const totalSpent =
     BRANCHES.reduce((sum, b) => sum + pref[b], 0) + excludeIds.length * SURVEY_VETO_COST;
-  if (totalSpent > SURVEY_POINTS_BUDGET) {
+  if (totalSpent > totalBudget) {
     redirect("/encuesta?error=budget_exceeded");
   }
 
@@ -345,8 +363,8 @@ export async function submitSurvey(formData: FormData) {
     await dbRun(
       `INSERT INTO survey_responses
         (scouter_id, priority_pref, availability, free_text, avail_navidad, avail_semana_santa,
-         avail_verano, mtl_self_status, pref_castores, pref_lobatos, pref_tropa, pref_escultas, pref_clan, source, submitted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', datetime('now'))
+         avail_verano, mtl_self_status, roles_text, pref_castores, pref_lobatos, pref_tropa, pref_escultas, pref_clan, source, submitted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', datetime('now'))
        ON CONFLICT(scouter_id) DO UPDATE SET
          priority_pref = excluded.priority_pref,
          availability = excluded.availability,
@@ -355,6 +373,7 @@ export async function submitSurvey(formData: FormData) {
          avail_semana_santa = excluded.avail_semana_santa,
          avail_verano = excluded.avail_verano,
          mtl_self_status = excluded.mtl_self_status,
+         roles_text = excluded.roles_text,
          pref_castores = excluded.pref_castores,
          pref_lobatos = excluded.pref_lobatos,
          pref_tropa = excluded.pref_tropa,
@@ -371,6 +390,7 @@ export async function submitSurvey(formData: FormData) {
         availSemanaSanta,
         availVerano,
         mtlSelfStatus,
+        rolesText,
         pref.castores,
         pref.lobatos,
         pref.tropa,
@@ -378,6 +398,22 @@ export async function submitSurvey(formData: FormData) {
         pref.clan,
       ],
     );
+
+    await dbRun("DELETE FROM survey_roles WHERE scouter_id = ?", [scouterId]);
+    for (const roleName of cargoIds) {
+      await dbRun("INSERT INTO survey_roles (scouter_id, role_type, role_name) VALUES (?, ?, ?)", [
+        scouterId,
+        "cargo",
+        roleName,
+      ]);
+    }
+    for (const roleName of comisionIds) {
+      await dbRun("INSERT INTO survey_roles (scouter_id, role_type, role_name) VALUES (?, ?, ?)", [
+        scouterId,
+        "comision",
+        roleName,
+      ]);
+    }
 
     await dbRun("DELETE FROM survey_compatibility WHERE scouter_id = ?", [scouterId]);
 

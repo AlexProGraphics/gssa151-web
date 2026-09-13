@@ -20,6 +20,7 @@ import {
 import { generateSuggestion, type ExclusionPair, type ScoringInput } from "@/lib/scoring";
 import { computeSurveyTotalBudget } from "@/lib/surveyBudget";
 import {
+  AGILE_PAG_AMBITOS,
   BRANCHES,
   CAMP_FIELD_NAME,
   CAMP_SEASONS,
@@ -28,6 +29,7 @@ import {
   FAVORITES_MAX,
   SURVEY_SUBMIT_UNLOCK_AT,
   SURVEY_VETO_COST,
+  type AgileReferenceLink,
   type Branch,
   type CampAvailability,
   type CampSeason,
@@ -625,4 +627,163 @@ export async function adminResetScouterPassword(formData: FormData) {
   await adminSetScouterPassword(scouterId, newPassword);
 
   revalidatePath("/admin/scouters");
+}
+
+// --- Consejos AGILE ---
+
+/** "Título con acentos y ñ" -> "titulo-con-acentos-y-n" — id legible y
+ * único para la URL de cada consejo (ver createAgileCouncil). */
+function slugify(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Admin: crea un nuevo consejo AGILE — el resto de la web (formulario de
+ * participación, disclaimer de respuestas públicas) lo reusa automáticamente
+ * vía /consejos-agile/[slug], sin tocar código para cada consejo nuevo. */
+export async function createAgileCouncil(formData: FormData) {
+  await requireAdmin();
+
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) throw new Error("Falta el título del consejo.");
+
+  const eventDate = String(formData.get("eventDate") ?? "").trim() || null;
+  const methodologyLink = String(formData.get("methodologyLink") ?? "").trim() || null;
+  const calendarLink = String(formData.get("calendarLink") ?? "").trim() || null;
+  const calendarDriveLink = String(formData.get("calendarDriveLink") ?? "").trim() || null;
+  const chavalesExcelLink = String(formData.get("chavalesExcelLink") ?? "").trim() || null;
+
+  // Un enlace por línea, formato "Etiqueta | URL" — una línea mal escrita se
+  // descarta sola en vez de romper el envío entero.
+  const pagLinksRaw = String(formData.get("pagReferenceLinks") ?? "");
+  const pagReferenceLinks: AgileReferenceLink[] = pagLinksRaw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [label, url] = line.split("|").map((part) => part.trim());
+      return label && url ? { label, url } : null;
+    })
+    .filter((link): link is AgileReferenceLink => link !== null);
+
+  let slug = slugify(title) || crypto.randomUUID();
+  const existing = await dbGet<{ id: string }>("SELECT id FROM agile_councils WHERE slug = ?", [
+    slug,
+  ]);
+  if (existing) slug = `${slug}-${crypto.randomUUID().slice(0, 4)}`;
+
+  const maxSortRow = await dbGet<{ maxSort: number | null }>(
+    "SELECT MAX(sort_order) AS maxSort FROM agile_councils",
+  );
+
+  await dbRun(
+    `INSERT INTO agile_councils
+      (id, slug, title, event_date, methodology_link, calendar_link, calendar_drive_link, chavales_excel_link, pag_reference_links, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      crypto.randomUUID(),
+      slug,
+      title,
+      eventDate,
+      methodologyLink,
+      calendarLink,
+      calendarDriveLink,
+      chavalesExcelLink,
+      JSON.stringify(pagReferenceLinks),
+      (maxSortRow?.maxSort ?? -1) + 1,
+    ],
+  );
+
+  revalidatePath("/consejos-agile");
+  revalidatePath("/admin/consejos-agile");
+}
+
+/** Admin: oculta (o vuelve a mostrar) un consejo de la lista pública — igual
+ * que setScouterHidden, reversible y sin perder las respuestas ya enviadas. */
+export async function setAgileCouncilActive(formData: FormData) {
+  await requireAdmin();
+
+  const councilId = String(formData.get("councilId") ?? "");
+  const active = formData.get("active") === "1";
+  if (!councilId) throw new Error("Falta el consejo.");
+
+  await dbRun("UPDATE agile_councils SET active = ? WHERE id = ?", [active ? 1 : 0, councilId]);
+
+  revalidatePath("/consejos-agile");
+  revalidatePath("/admin/consejos-agile");
+}
+
+/** Admin: borrado real — arrastra en cascada sus respuestas (ON DELETE CASCADE). */
+export async function deleteAgileCouncil(formData: FormData) {
+  await requireAdmin();
+
+  const councilId = String(formData.get("councilId") ?? "");
+  if (!councilId) throw new Error("Falta el consejo.");
+
+  await dbRun("DELETE FROM agile_councils WHERE id = ?", [councilId]);
+
+  revalidatePath("/consejos-agile");
+  revalidatePath("/admin/consejos-agile");
+}
+
+/** Respuesta de participación en un consejo — pública para todo el kraal
+ * (ver disclaimer en /consejos-agile/[slug]), a diferencia de submitSurvey.
+ * Reenviarla la pisa (no se acumula), para poder corregirla. */
+export async function submitAgileCouncilResponse(formData: FormData) {
+  const { scouterId } = await requireScouter();
+
+  const councilId = String(formData.get("councilId") ?? "");
+  const slug = String(formData.get("slug") ?? "");
+  if (!councilId || !slug) throw new Error("Falta el consejo.");
+
+  const pag: Record<string, string | null> = {};
+  for (const ambito of AGILE_PAG_AMBITOS) {
+    pag[ambito] = String(formData.get(`pag_${ambito}`) ?? "").trim() || null;
+  }
+
+  const calendarReviewed = formData.get("calendarReviewed") === "1";
+  const calendarComments = String(formData.get("calendarComments") ?? "").trim() || null;
+  const chavalesExcelDone = formData.get("chavalesExcelDone") === "1";
+  const chavalesComments = String(formData.get("chavalesComments") ?? "").trim() || null;
+  const ruegosPreguntas = String(formData.get("ruegosPreguntas") ?? "").trim() || null;
+
+  await dbRun(
+    `INSERT INTO agile_council_responses
+      (council_id, scouter_id, pag_social, pag_ambiental, pag_espiritual, pag_salud,
+       calendar_reviewed, calendar_comments, chavales_excel_done, chavales_comments,
+       ruegos_preguntas, submitted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(council_id, scouter_id) DO UPDATE SET
+       pag_social = excluded.pag_social,
+       pag_ambiental = excluded.pag_ambiental,
+       pag_espiritual = excluded.pag_espiritual,
+       pag_salud = excluded.pag_salud,
+       calendar_reviewed = excluded.calendar_reviewed,
+       calendar_comments = excluded.calendar_comments,
+       chavales_excel_done = excluded.chavales_excel_done,
+       chavales_comments = excluded.chavales_comments,
+       ruegos_preguntas = excluded.ruegos_preguntas,
+       submitted_at = excluded.submitted_at`,
+    [
+      councilId,
+      scouterId,
+      pag.social,
+      pag.ambiental,
+      pag.espiritual,
+      pag.salud,
+      calendarReviewed ? 1 : 0,
+      calendarComments,
+      chavalesExcelDone ? 1 : 0,
+      chavalesComments,
+      ruegosPreguntas,
+    ],
+  );
+
+  revalidatePath(`/consejos-agile/${slug}`);
+  redirect(`/consejos-agile/${slug}?ok=1`);
 }

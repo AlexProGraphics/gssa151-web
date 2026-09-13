@@ -9,6 +9,7 @@ const ITEMS = [
   { href: "/admin/scouters", label: "Scouters" },
   { href: "/admin/respuestas", label: "Respuestas" },
   { href: "/admin/units", label: "Unidades" },
+  { href: "/admin/consejos-agile", label: "Consejos AGILE" },
 ];
 
 export function AdminNavDropdown() {

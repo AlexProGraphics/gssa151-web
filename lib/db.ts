@@ -156,6 +156,21 @@ async function migrate(db: Client) {
     }
   }
 
+  // agile_councils ganó methodology_link después de crearse — igual que con
+  // survey_responses, CREATE TABLE IF NOT EXISTS no la añade a una tabla ya
+  // existente, así que se agrega a mano si falta.
+  const agileCouncilCols = new Set(
+    ((await db.execute("PRAGMA table_info(agile_councils)")).rows as unknown as {
+      name: string;
+    }[]).map((c) => c.name),
+  );
+  if (agileCouncilCols.size > 0 && !agileCouncilCols.has("methodology_link")) {
+    await db.execute("ALTER TABLE agile_councils ADD COLUMN methodology_link TEXT;");
+  }
+  if (agileCouncilCols.size > 0 && !agileCouncilCols.has("calendar_drive_link")) {
+    await db.execute("ALTER TABLE agile_councils ADD COLUMN calendar_drive_link TEXT;");
+  }
+
   await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS units (
       id TEXT PRIMARY KEY,
@@ -298,7 +313,103 @@ async function migrate(db: Client) {
       scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,
       expires_at TEXT NOT NULL
     );
+
+    -- Un consejo AGILE puntual (ej. "Smooth Planning 19/9"). Genérico a
+    -- propósito: el admin crea uno nuevo desde /admin/consejos-agile sin
+    -- tocar código, y /consejos-agile/[slug] reusa el mismo formulario para
+    -- cualquiera. pag_reference_links guarda un JSON [{label,url}].
+    CREATE TABLE IF NOT EXISTS agile_councils (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      event_date TEXT,
+      methodology_link TEXT,
+      calendar_link TEXT,
+      calendar_drive_link TEXT,
+      chavales_excel_link TEXT,
+      pag_reference_links TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Pública para todo el kraal (a diferencia de survey_responses): un
+    -- scouter logueado puede leer las respuestas de los demás, no solo la
+    -- coordinación — así se ven las propuestas de todos antes del consejo.
+    CREATE TABLE IF NOT EXISTS agile_council_responses (
+      council_id TEXT NOT NULL REFERENCES agile_councils(id) ON DELETE CASCADE,
+      scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,
+      pag_social TEXT,
+      pag_ambiental TEXT,
+      pag_espiritual TEXT,
+      pag_salud TEXT,
+      calendar_reviewed INTEGER NOT NULL DEFAULT 0,
+      calendar_comments TEXT,
+      chavales_excel_done INTEGER NOT NULL DEFAULT 0,
+      chavales_comments TEXT,
+      ruegos_preguntas TEXT,
+      submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (council_id, scouter_id)
+    );
   `);
+
+  await ensureSeedAgileCouncils(db);
+}
+
+/**
+ * Consejos reales que ya se han pedido explícitamente, sembrados una vez
+ * (ON CONFLICT DO NOTHING) para que aparezcan solos tras el deploy sin
+ * pasar por el panel admin — que sigue pudiendo editarlos después.
+ */
+async function ensureSeedAgileCouncils(db: Client) {
+  const pagLinks: { label: string; url: string }[] = [
+    {
+      label: "Carpeta 04. PAGs (histórico y plantillas)",
+      url: "https://drive.google.com/drive/folders/1PcUrJc0FarSAibcJO0QHRToFT-LCBPbz",
+    },
+    {
+      label: "Proyecto de Coordinación 26/27 — «Pincha tu burbuja»",
+      url: "https://app.notion.com/p/PROYECTO-DE-COORDINACI-N-2026-2027-PINCHA-TU-BURBUJA-3cef7451414f81d28f42d6fc3053d5a5",
+    },
+  ];
+
+  const methodologyLink =
+    "https://app.notion.com/p/gabrielgarciaagui/Plan-de-Consejos-Consejos-AGILE-3d8f7451414f80e99b02f19a9c7ea5c4";
+  const calendarLink =
+    "https://gabrielgarciaagui.notion.site/Mapeo-y-Viabilidad-de-Fines-de-Semana-Calendario-Ronda-2026-2027-3d8f7451414f81bfb041fd957e550339?source=copy_link";
+  const calendarDriveLink =
+    "https://drive.google.com/file/d/17PgTGUE9XkIw6-QHIYX4sds-JTrmJGzT/view?usp=drive_link";
+
+  await db.execute({
+    sql: `INSERT INTO agile_councils
+       (id, slug, title, event_date, methodology_link, calendar_link, calendar_drive_link, chavales_excel_link, pag_reference_links, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(slug) DO NOTHING`,
+    args: [
+      crypto.randomUUID(),
+      "smooth-planning-19-9",
+      "Smooth Planning 19/9",
+      "2026-09-19",
+      methodologyLink,
+      calendarLink,
+      calendarDriveLink,
+      "https://docs.google.com/spreadsheets/d/1U7LJ5alBLA3KkFBQT_egZV3yzKU1308CwrQVtqMUShg/edit?usp=sharing",
+      JSON.stringify(pagLinks),
+      0,
+    ],
+  });
+
+  // El consejo ya existía de antes de añadir estos campos (ON CONFLICT DO
+  // NOTHING no los actualiza en un consejo ya sembrado) — se reafirman aparte
+  // en cada arranque, igual que ensureFixedAdmins reafirma la contraseña fija:
+  // de momento no hay UI de admin para editar estos enlaces, así que no hay
+  // riesgo de pisar un cambio manual.
+  await db.execute({
+    sql: `UPDATE agile_councils
+          SET methodology_link = ?, calendar_link = ?, calendar_drive_link = ?
+          WHERE slug = 'smooth-planning-19-9'`,
+    args: [methodologyLink, calendarLink, calendarDriveLink],
+  });
 }
 
 async function seedIfEmpty(db: Client) {

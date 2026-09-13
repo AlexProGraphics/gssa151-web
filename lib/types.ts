@@ -144,6 +144,12 @@ export const SITE_MAINTENANCE_UNTIL = "2026-09-13T12:00:00+02:00";
 // se salta el botón deshabilitado).
 export const SURVEY_SUBMIT_UNLOCK_AT = SITE_MAINTENANCE_UNTIL;
 
+// Fecha límite (informativa, no bloquea el envío) para rellenar la encuesta
+// de preferencias — el miércoles antes del consejo AGILE del sábado 19/9,
+// para dar tiempo a la coordinación a montar la parrilla con margen. Se usa
+// también para el puntito de "sin leer" en el nav (ver lib/surveyStatus.ts).
+export const SURVEY_SUBMIT_DEADLINE_AT = "2026-09-16T23:59:59+02:00";
+
 export type PriorityPref = "seccion" | "equipo";
 
 export type CampSeason = "navidad" | "semana_santa" | "verano";
@@ -250,4 +256,68 @@ export interface SurveyCompatibility {
   scouterId: string;
   otherScouterId: string;
   type: CompatibilityType;
+}
+
+// --- Consejos AGILE ---
+//
+// Un "consejo" es una reunión puntual del kraal (ej. "Smooth Planning
+// 19/9"). Todas comparten la misma estructura de formulario, así que se
+// modelan como filas de datos (AgileCouncil) en vez de una página por
+// consejo — el admin crea uno nuevo desde /admin/consejos-agile sin tocar
+// código, y /consejos-agile/[slug] renderiza el formulario genérico para
+// cualquiera de ellos.
+
+export type AgilePagAmbito = "social" | "ambiental" | "espiritual" | "salud";
+
+export const AGILE_PAG_AMBITOS: AgilePagAmbito[] = [
+  "social",
+  "ambiental",
+  "espiritual",
+  "salud",
+];
+
+export const AGILE_PAG_AMBITO_LABEL: Record<AgilePagAmbito, string> = {
+  social: "Social",
+  ambiental: "Ambiental",
+  espiritual: "Espiritual",
+  salud: "Salud",
+};
+
+export interface AgileReferenceLink {
+  label: string;
+  url: string;
+}
+
+export interface AgileCouncil {
+  id: string;
+  slug: string;
+  title: string;
+  eventDate: string | null;
+  methodologyLink: string | null;
+  calendarLink: string | null;
+  calendarDriveLink: string | null;
+  chavalesExcelLink: string | null;
+  pagReferenceLinks: AgileReferenceLink[];
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+/** Respuestas públicas para todo el kraal (no confidenciales, a diferencia
+ * de SurveyResponse) — cualquier scouter logueado puede leer las de los
+ * demás, no solo la coordinación. */
+export interface AgileCouncilResponse {
+  councilId: string;
+  scouterId: string;
+  scouterName: string;
+  pagSocial: string | null;
+  pagAmbiental: string | null;
+  pagEspiritual: string | null;
+  pagSalud: string | null;
+  calendarReviewed: boolean;
+  calendarComments: string | null;
+  chavalesExcelDone: boolean;
+  chavalesComments: string | null;
+  ruegosPreguntas: string | null;
+  submittedAt: string;
 }

@@ -16,6 +16,11 @@ const FEATURES = [
     title: "Crea tu parrilla",
     description: "Monta tu propia propuesta de reparto y envíasela al kraal.",
   },
+  {
+    href: "/consejos-agile",
+    title: "Consejos AGILE",
+    description: "Consulta la información de cada consejo y envía tu participación.",
+  },
 ];
 
 export default function Home() {
@@ -35,29 +40,9 @@ export default function Home() {
             y, si eres scouter, rellena tu encuesta de preferencias.
           </p>
         </div>
-        <div className="flex flex-wrap justify-center gap-3">
-          <Link
-            href="/parrillas"
-            className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-background transition hover:opacity-90"
-          >
-            Ver la parrilla
-          </Link>
-          <Link
-            href="/encuesta"
-            className="rounded-md border border-border bg-surface px-5 py-2.5 text-sm font-medium text-foreground transition hover:border-accent"
-          >
-            Rellenar mi encuesta
-          </Link>
-          <Link
-            href="/mi-parrilla"
-            className="rounded-md border border-border bg-surface px-5 py-2.5 text-sm font-medium text-foreground transition hover:border-accent"
-          >
-            Crea tu parrilla
-          </Link>
-        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {FEATURES.map((f) => (
           <Link
             key={f.href}

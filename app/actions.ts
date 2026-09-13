@@ -18,19 +18,22 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import { generateSuggestion, type ExclusionPair, type ScoringInput } from "@/lib/scoring";
+import { computeSurveyTotalBudget } from "@/lib/surveyBudget";
 import {
   BRANCHES,
-  CAMP_AVAILABILITY_POINTS,
-  CARGO_POINTS,
+  CAMP_FIELD_NAME,
+  CAMP_SEASONS,
   CARGO_ROLES,
-  COMISION_POINTS,
   COMISION_ROLES,
-  MTL_TITLE_POINTS,
-  SURVEY_POINTS_BUDGET,
+  FAVORITES_MAX,
   SURVEY_SUBMIT_UNLOCK_AT,
   SURVEY_VETO_COST,
   type Branch,
+  type CampAvailability,
+  type CampSeason,
+  type SurveyMtlStatus,
   type UnitCategory,
+  type UnitContinuity,
 } from "@/lib/types";
 
 /**
@@ -157,9 +160,41 @@ export async function unassignInProposal(scouterId: string) {
   revalidatePath("/mi-parrilla");
 }
 
+/** Compara el borrador actual contra la última propuesta ya enviada — si son
+ * idénticos no hay nada nuevo que mandar (ver submitProposal). */
+async function draftMatchesLatestProposal(ownerId: string): Promise<boolean> {
+  const latest = await dbGet<{ id: string }>(
+    "SELECT id FROM proposals WHERE owner_id = ? ORDER BY submitted_at DESC LIMIT 1",
+    [ownerId],
+  );
+  if (!latest) return false;
+
+  const [draft, sent] = await Promise.all([
+    dbAll<{ scouterId: string; unitId: string }>(
+      "SELECT scouter_id AS scouterId, unit_id AS unitId FROM proposal_draft_assignments WHERE owner_id = ?",
+      [ownerId],
+    ),
+    dbAll<{ scouterId: string; unitId: string }>(
+      "SELECT scouter_id AS scouterId, unit_id AS unitId FROM proposal_assignments WHERE proposal_id = ?",
+      [latest.id],
+    ),
+  ]);
+
+  if (draft.length !== sent.length) return false;
+  const sentByScouter = new Map(sent.map((r) => [r.scouterId, r.unitId]));
+  return draft.every((r) => sentByScouter.get(r.scouterId) === r.unitId);
+}
+
 /** Congela el borrador actual como un nuevo envío — se acumulan, no se pisan. */
 export async function submitProposal() {
   const owner = await requireScouter();
+
+  // Si el borrador es exactamente igual al último envío, no crear un
+  // duplicado — el botón del cliente ya se deshabilita en ese caso, esto es
+  // el mismo candado que submitSurvey tiene para su propio bloqueo.
+  if (await draftMatchesLatestProposal(owner.scouterId)) {
+    redirect("/mi-parrilla?error=already_sent");
+  }
 
   const draft = await dbAll<{ scouterId: string; unitId: string }>(
     "SELECT scouter_id AS scouterId, unit_id AS unitId FROM proposal_draft_assignments WHERE owner_id = ?",
@@ -319,11 +354,39 @@ export async function submitSurvey(formData: FormData) {
   const priorityPref = formData.get("priorityPref");
   const availability = String(formData.get("availability") ?? "").trim() || null;
   const freeText = String(formData.get("freeText") ?? "").trim() || null;
-  const availNavidad = formData.get("availNavidad") === "si" ? 1 : 0;
-  const availSemanaSanta = formData.get("availSemanaSanta") === "si" ? 1 : 0;
-  const availVerano = formData.get("availVerano") === "si" ? 1 : 0;
   const mtlSelfStatus = String(formData.get("mtlSelfStatus") ?? "").trim() || null;
   const rolesText = String(formData.get("rolesText") ?? "").trim() || null;
+  const previousUnitId = String(formData.get("previousUnitId") ?? "").trim() || null;
+  const yearsInUnitRaw = formData.get("yearsInUnit");
+  const yearsInUnit =
+    yearsInUnitRaw === null || yearsInUnitRaw === "" ? null : Number(yearsInUnitRaw) || 0;
+  const unitContinuityRaw = String(formData.get("unitContinuity") ?? "");
+  const unitContinuity: UnitContinuity | null =
+    unitContinuityRaw === "mantener" || unitContinuityRaw === "cambiar" ? unitContinuityRaw : null;
+
+  // Disponibilidad de campamentos: 'si' | 'parcial' | 'no', un valor
+  // manipulado o ausente se trata como 'no' (sin puntos).
+  const campAvailSet = new Set<string>(["si", "parcial", "no"]);
+  const campAvail = {} as Record<CampSeason, CampAvailability>;
+  for (const season of CAMP_SEASONS) {
+    const raw = String(formData.get(CAMP_FIELD_NAME[season]) ?? "");
+    campAvail[season] = (campAvailSet.has(raw) ? raw : "no") as CampAvailability;
+  }
+
+  // Orden de prioridad de secciones: solo se guarda si es una permutación
+  // válida de las 5 secciones — si no, se descarta (es informativo, no
+  // bloquea el envío).
+  const branchSet = new Set<string>(BRANCHES);
+  const branchPriorityRaw = String(formData.get("branchPriorityOrder") ?? "")
+    .split(",")
+    .map((b) => b.trim())
+    .filter(Boolean);
+  const branchPriorityOrder =
+    branchPriorityRaw.length === BRANCHES.length &&
+    new Set(branchPriorityRaw).size === BRANCHES.length &&
+    branchPriorityRaw.every((b) => branchSet.has(b))
+      ? branchPriorityRaw.join(",")
+      : null;
 
   // Cargos/comisiones/disponibilidad de campamentos/título MTL AMPLÍAN el
   // budget (nunca lo reducen) — cada uno solo cuenta si es uno de los
@@ -336,14 +399,14 @@ export async function submitSurvey(formData: FormData) {
     .getAll("comisiones")
     .map(String)
     .filter((id) => comisionSet.has(id));
-  const campSiCount = [availNavidad, availSemanaSanta, availVerano].filter((v) => v === 1).length;
-  const mtlBonus = mtlSelfStatus === "si" ? MTL_TITLE_POINTS : 0;
-  const totalBudget =
-    SURVEY_POINTS_BUDGET +
-    cargoIds.length * CARGO_POINTS +
-    comisionIds.length * COMISION_POINTS +
-    campSiCount * CAMP_AVAILABILITY_POINTS +
-    mtlBonus;
+  const totalBudget = computeSurveyTotalBudget({
+    cargoCount: cargoIds.length,
+    comisionCount: comisionIds.length,
+    availNavidad: campAvail.navidad,
+    availSemanaSanta: campAvail.semana_santa,
+    availVerano: campAvail.verano,
+    mtlSelfStatus: mtlSelfStatus as SurveyMtlStatus | null,
+  });
 
   // Puntos por sección: presupuesto compartido con los vetos.
   const pref: Record<Branch, number> = {} as Record<Branch, number>;
@@ -359,14 +422,19 @@ export async function submitSurvey(formData: FormData) {
     redirect("/encuesta?error=budget_exceeded");
   }
 
+  // Como mucho FAVORITES_MAX favoritos — el cliente ya lo limita, esto es el
+  // mismo candado por si alguien manda el formulario a mano.
+  const favoriteIds = formData.getAll("favoriteWith").map(String).slice(0, FAVORITES_MAX);
+
   // Si la base de datos no puede escribir (disco lleno, fichero bloqueado…)
   // que quede claro que NO se ha guardado nada, en vez de un error genérico.
   try {
     await dbRun(
       `INSERT INTO survey_responses
         (scouter_id, priority_pref, availability, free_text, avail_navidad, avail_semana_santa,
-         avail_verano, mtl_self_status, roles_text, pref_castores, pref_lobatos, pref_tropa, pref_escultas, pref_clan, source, submitted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', datetime('now'))
+         avail_verano, mtl_self_status, roles_text, pref_castores, pref_lobatos, pref_tropa, pref_escultas, pref_clan,
+         previous_unit_id, years_in_unit, unit_continuity, branch_priority_order, source, submitted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', datetime('now'))
        ON CONFLICT(scouter_id) DO UPDATE SET
          priority_pref = excluded.priority_pref,
          availability = excluded.availability,
@@ -381,6 +449,10 @@ export async function submitSurvey(formData: FormData) {
          pref_tropa = excluded.pref_tropa,
          pref_escultas = excluded.pref_escultas,
          pref_clan = excluded.pref_clan,
+         previous_unit_id = excluded.previous_unit_id,
+         years_in_unit = excluded.years_in_unit,
+         unit_continuity = excluded.unit_continuity,
+         branch_priority_order = excluded.branch_priority_order,
          source = excluded.source,
          submitted_at = excluded.submitted_at`,
       [
@@ -388,9 +460,9 @@ export async function submitSurvey(formData: FormData) {
         (priorityPref as string) || null,
         availability,
         freeText,
-        availNavidad,
-        availSemanaSanta,
-        availVerano,
+        campAvail.navidad,
+        campAvail.semana_santa,
+        campAvail.verano,
         mtlSelfStatus,
         rolesText,
         pref.castores,
@@ -398,6 +470,10 @@ export async function submitSurvey(formData: FormData) {
         pref.tropa,
         pref.escultas,
         pref.clan,
+        previousUnitId,
+        yearsInUnit,
+        unitContinuity,
+        branchPriorityOrder,
       ],
     );
 
@@ -429,6 +505,12 @@ export async function submitSurvey(formData: FormData) {
       await dbRun(
         "INSERT INTO survey_compatibility (scouter_id, other_scouter_id, type) VALUES (?, ?, ?)",
         [scouterId, otherId, "exclusion"],
+      );
+    }
+    for (const otherId of favoriteIds) {
+      await dbRun(
+        "INSERT INTO survey_compatibility (scouter_id, other_scouter_id, type) VALUES (?, ?, ?)",
+        [scouterId, otherId, "favorito"],
       );
     }
   } catch (err) {
@@ -481,6 +563,53 @@ export async function addScouter(formData: FormData) {
   await dbRun("INSERT INTO scouters (id, name) VALUES (?, ?)", [crypto.randomUUID(), name]);
 
   revalidatePath("/admin/scouters");
+}
+
+/** Oculta (o vuelve a mostrar) un scouter para todo el mundo salvo los
+ * admins: `active` ya es el filtro que usan parrillas/encuesta/login, así
+ * que apagarlo basta y es reversible — a diferencia de borrarlo. */
+export async function setScouterHidden(formData: FormData) {
+  await requireAdmin();
+
+  const scouterId = String(formData.get("scouterId") ?? "");
+  const hidden = formData.get("hidden") === "1";
+  if (!scouterId) throw new Error("Falta el scouter.");
+
+  if (hidden && (await findAdminByScouterId(scouterId))) {
+    throw new Error("No se puede ocultar a un admin.");
+  }
+
+  await dbRun("UPDATE scouters SET active = ? WHERE id = ?", [hidden ? 0 : 1, scouterId]);
+
+  revalidatePath("/admin/scouters");
+  revalidatePath("/admin/board");
+  revalidatePath("/admin/respuestas");
+  revalidatePath("/admin/analitica");
+  revalidatePath("/parrillas");
+  revalidatePath("/mi-parrilla");
+}
+
+/** Borrado real y permanente — arrastra en cascada su encuesta, propuestas,
+ * asignaciones y cuenta (ver ON DELETE CASCADE en lib/db.ts). Para dejar
+ * de mostrarlo sin perder sus datos, usar setScouterHidden en su lugar. */
+export async function deleteScouter(formData: FormData) {
+  await requireAdmin();
+
+  const scouterId = String(formData.get("scouterId") ?? "");
+  if (!scouterId) throw new Error("Falta el scouter.");
+
+  if (await findAdminByScouterId(scouterId)) {
+    throw new Error("No se puede eliminar a un admin.");
+  }
+
+  await dbRun("DELETE FROM scouters WHERE id = ?", [scouterId]);
+
+  revalidatePath("/admin/scouters");
+  revalidatePath("/admin/board");
+  revalidatePath("/admin/respuestas");
+  revalidatePath("/admin/analitica");
+  revalidatePath("/parrillas");
+  revalidatePath("/mi-parrilla");
 }
 
 /** Único desbloqueo posible si un scouter olvida su contraseña: un admin se la fuerza. */

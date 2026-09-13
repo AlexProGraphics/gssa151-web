@@ -129,6 +129,31 @@ async function migrate(db: Client) {
     if (!surveyCols.has("roles_text")) {
       await db.execute("ALTER TABLE survey_responses ADD COLUMN roles_text TEXT;");
     }
+    if (!surveyCols.has("previous_unit_id")) {
+      await db.execute(
+        "ALTER TABLE survey_responses ADD COLUMN previous_unit_id TEXT REFERENCES units(id);",
+      );
+    }
+    if (!surveyCols.has("years_in_unit")) {
+      await db.execute("ALTER TABLE survey_responses ADD COLUMN years_in_unit REAL;");
+    }
+    if (!surveyCols.has("unit_continuity")) {
+      await db.execute("ALTER TABLE survey_responses ADD COLUMN unit_continuity TEXT;");
+    }
+    if (!surveyCols.has("branch_priority_order")) {
+      await db.execute("ALTER TABLE survey_responses ADD COLUMN branch_priority_order TEXT;");
+    }
+
+    // avail_navidad/avail_semana_santa/avail_verano eran 0/1 (booleano) antes
+    // de añadir la opción "Parcialmente" — se pasan a texto 'si'/'parcial'/'no'.
+    // SQLite no fuerza el tipo de columna, así que basta con reescribir los
+    // valores antiguos; no hace falta recrear la tabla.
+    for (const col of ["avail_navidad", "avail_semana_santa", "avail_verano"]) {
+      await db.execute(
+        `UPDATE survey_responses SET ${col} = CASE ${col} WHEN 1 THEN 'si' WHEN 0 THEN 'no' ELSE ${col} END
+         WHERE ${col} IN (0, 1);`,
+      );
+    }
   }
 
   await db.executeMultiple(`
@@ -180,9 +205,10 @@ async function migrate(db: Client) {
       priority_pref TEXT,
       availability TEXT,
       free_text TEXT,
-      avail_navidad INTEGER NOT NULL DEFAULT 0,
-      avail_semana_santa INTEGER NOT NULL DEFAULT 0,
-      avail_verano INTEGER NOT NULL DEFAULT 0,
+      -- 'si' | 'parcial' | 'no'.
+      avail_navidad TEXT NOT NULL DEFAULT 'no',
+      avail_semana_santa TEXT NOT NULL DEFAULT 'no',
+      avail_verano TEXT NOT NULL DEFAULT 'no',
       mtl_self_status TEXT,
       pref_castores INTEGER,
       pref_lobatos INTEGER,
@@ -193,6 +219,12 @@ async function migrate(db: Client) {
       -- encuesta), 'web' = enviado de verdad desde /encuesta.
       source TEXT NOT NULL DEFAULT 'web',
       roles_text TEXT,
+      previous_unit_id TEXT REFERENCES units(id),
+      years_in_unit REAL,
+      -- 'mantener' | 'cambiar'.
+      unit_continuity TEXT,
+      -- Lista de Branch separados por coma, en orden de prioridad.
+      branch_priority_order TEXT,
       submitted_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

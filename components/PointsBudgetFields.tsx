@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   BRANCHES,
   BRANCH_LABEL,
+  CAMP_AVAILABILITY_LABEL,
   CAMP_AVAILABILITY_POINTS,
   CAMP_FIELD_NAME,
   CAMP_SEASONS,
@@ -19,9 +20,12 @@ import {
   SURVEY_POINTS_BUDGET,
   SURVEY_VETO_COST,
   type Branch,
+  type CampAvailability,
   type CampSeason,
   type SurveyMtlStatus,
 } from "@/lib/types";
+
+const CAMP_AVAILABILITY_OPTIONS: CampAvailability[] = ["si", "parcial", "no"];
 
 export function PointsBudgetFields({
   otherScouters,
@@ -30,7 +34,7 @@ export function PointsBudgetFields({
 }) {
   const [cargos, setCargos] = useState<Set<string>>(new Set());
   const [comisiones, setComisiones] = useState<Set<string>>(new Set());
-  const [camps, setCamps] = useState<Record<CampSeason, "si" | "no" | "">>({
+  const [camps, setCamps] = useState<Record<CampSeason, CampAvailability | "">>({
     navidad: "",
     semana_santa: "",
     verano: "",
@@ -44,17 +48,22 @@ export function PointsBudgetFields({
     clan: 0,
   });
   const [vetoed, setVetoed] = useState<Set<string>>(new Set());
+  const [branchOrder, setBranchOrder] = useState<Branch[]>(BRANCHES);
 
   // Cargos, comisiones, disponibilidad de campamentos y el título MTL
   // AMPLÍAN el budget en vez de gastarlo — recompensa el compromiso sin
   // quitarle margen a quien también quiere priorizar sección o vetar.
-  const campSiCount = CAMP_SEASONS.filter((s) => camps[s] === "si").length;
+  // "Parcial" da la mitad de los puntos de ese campamento (redondeado hacia
+  // abajo) — verano pesa más que navidad/semana santa.
+  const campPoints = CAMP_SEASONS.reduce((sum, season) => {
+    const full = CAMP_AVAILABILITY_POINTS[season];
+    if (camps[season] === "si") return sum + full;
+    if (camps[season] === "parcial") return sum + Math.floor(full / 2);
+    return sum;
+  }, 0);
   const mtlBonus = mtlStatus === "si" ? MTL_TITLE_POINTS : 0;
   const extraBudget =
-    cargos.size * CARGO_POINTS +
-    comisiones.size * COMISION_POINTS +
-    campSiCount * CAMP_AVAILABILITY_POINTS +
-    mtlBonus;
+    cargos.size * CARGO_POINTS + comisiones.size * COMISION_POINTS + campPoints + mtlBonus;
   const totalBudget = SURVEY_POINTS_BUDGET + extraBudget;
   const spentOnBranches = BRANCHES.reduce((sum, b) => sum + points[b], 0);
   const spentOnVetoes = vetoed.size * SURVEY_VETO_COST;
@@ -65,6 +74,14 @@ export function PointsBudgetFields({
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setSet(next);
+  }
+
+  function moveBranch(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= branchOrder.length) return;
+    const next = [...branchOrder];
+    [next[index], next[target]] = [next[target], next[index]];
+    setBranchOrder(next);
   }
 
   function setBranch(branch: Branch, value: number) {
@@ -136,38 +153,37 @@ export function PointsBudgetFields({
 
       <fieldset className="flex flex-col gap-2">
         <legend className="text-sm font-medium text-foreground">
-          Disponibilidad de campamentos (cada &quot;Sí&quot; suma {CAMP_AVAILABILITY_POINTS} puntos)
+          Disponibilidad de campamentos
         </legend>
+        <p className="text-xs text-muted">
+          &quot;Parcialmente&quot; suma la mitad de los puntos de ese campamento.
+        </p>
         <div className="flex flex-col gap-2">
           {CAMP_SEASONS.map((season) => (
             <div
               key={season}
-              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm text-foreground"
+              className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between"
             >
-              <span>{CAMP_SEASON_LABEL[season]}</span>
+              <span>
+                {CAMP_SEASON_LABEL[season]}{" "}
+                <span className="text-xs text-muted">
+                  (hasta {CAMP_AVAILABILITY_POINTS[season]} pts)
+                </span>
+              </span>
               <div className="flex gap-3">
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name={CAMP_FIELD_NAME[season]}
-                    value="si"
-                    required
-                    checked={camps[season] === "si"}
-                    onChange={() => setCamps((c) => ({ ...c, [season]: "si" }))}
-                  />
-                  Sí
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name={CAMP_FIELD_NAME[season]}
-                    value="no"
-                    required
-                    checked={camps[season] === "no"}
-                    onChange={() => setCamps((c) => ({ ...c, [season]: "no" }))}
-                  />
-                  No
-                </label>
+                {CAMP_AVAILABILITY_OPTIONS.map((option) => (
+                  <label key={option} className="flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name={CAMP_FIELD_NAME[season]}
+                      value={option}
+                      required
+                      checked={camps[season] === option}
+                      onChange={() => setCamps((c) => ({ ...c, [season]: option }))}
+                    />
+                    {CAMP_AVAILABILITY_LABEL[option]}
+                  </label>
+                ))}
               </div>
             </div>
           ))}
@@ -256,6 +272,51 @@ export function PointsBudgetFields({
           </div>
         </div>
       </div>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium text-foreground">
+          Ordena las secciones del grupo por prioridad
+        </legend>
+        <p className="text-xs text-muted">
+          1ª es tu preferida. Usa las flechas para reordenar — esto es solo
+          para que quede claro tu orden, luego reparte los puntos abajo
+          como quieras.
+        </p>
+        <div className="flex flex-col gap-1">
+          {branchOrder.map((branch, index) => (
+            <div
+              key={branch}
+              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-1.5 text-sm text-foreground"
+            >
+              <span>
+                <span className="mr-2 text-xs text-muted">{index + 1}º</span>
+                {BRANCH_LABEL[branch]}
+              </span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => moveBranch(index, -1)}
+                  className="rounded-md border border-border px-2 py-0.5 text-xs text-muted hover:text-foreground disabled:opacity-30"
+                  aria-label={`Subir ${BRANCH_LABEL[branch]}`}
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  disabled={index === branchOrder.length - 1}
+                  onClick={() => moveBranch(index, 1)}
+                  className="rounded-md border border-border px-2 py-0.5 text-xs text-muted hover:text-foreground disabled:opacity-30"
+                  aria-label={`Bajar ${BRANCH_LABEL[branch]}`}
+                >
+                  ▼
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <input type="hidden" name="branchPriorityOrder" value={branchOrder.join(",")} />
+      </fieldset>
 
       <fieldset className="flex flex-col gap-3">
         <legend className="text-sm font-medium text-foreground">

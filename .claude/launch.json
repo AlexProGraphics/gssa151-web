@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "gssa151-web",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "/Users/alejandromunozdelamorena/.nvm/versions/node/v24.15.0/bin/npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
     }

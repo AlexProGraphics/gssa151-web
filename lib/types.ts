@@ -108,14 +108,28 @@ export const COMISION_LABEL: Record<ComisionRole, string> = {
 
 // Un cargo aporta el doble de budget que una comisión — recompensa
 // el esfuerzo sin ser el único factor. Solo informativo para el algoritmo
-// de sugerencia (el kraal lo valora a mano); aquí solo amplían el
+// de sugerencia (la coordinación lo valora a mano); aquí solo amplían el
 // budget que el propio scouter reparte en su encuesta.
-export const CARGO_POINTS = 5;
+export const CARGO_POINTS = 6;
 export const COMISION_POINTS = 3;
 
-// Cada campamento con disponibilidad confirmada ("Sí") también amplía el
-// budget — igual mecánica que cargos/comisiones.
-export const CAMP_AVAILABILITY_POINTS = 2;
+/** Disponibilidad declarada para un campamento — "parcial" cuenta la mitad
+ * de los puntos de ese campamento (redondeado hacia abajo). */
+export type CampAvailability = "si" | "parcial" | "no";
+
+export const CAMP_AVAILABILITY_LABEL: Record<CampAvailability, string> = {
+  si: "Sí",
+  parcial: "Parcialmente",
+  no: "No",
+};
+
+// Cada campamento amplía el budget por su cuenta — verano pesa más porque
+// es el compromiso más largo. "Parcial" da la mitad de estos puntos.
+export const CAMP_AVAILABILITY_POINTS: Record<CampSeason, number> = {
+  navidad: 5,
+  semana_santa: 5,
+  verano: 10,
+};
 
 // Fecha/hora hasta la que la web sigue "en construcción" mientras se termina
 // de pulir la encuesta y el sistema de budget — un banner lo avisa en todas
@@ -160,7 +174,21 @@ export const SURVEY_MTL_LABEL: Record<SurveyMtlStatus, string> = {
 };
 
 // Tener el título ya sacado (no "en curso") también amplía el budget.
-export const MTL_TITLE_POINTS = 5;
+export const MTL_TITLE_POINTS = 10;
+
+/** ¿De qué unidad viene el scouter y seguiría en ella? Puramente informativo
+ * para la coordinación, no toca el budget ni el algoritmo de sugerencia. */
+export type UnitContinuity = "mantener" | "cambiar";
+
+export const UNIT_CONTINUITY_LABEL: Record<UnitContinuity, string> = {
+  mantener: "Mantengo unidad",
+  cambiar: "Quiero cambiar",
+};
+
+// Máximo de "favoritos" (personas con las que más ilusión da compartir
+// unidad) — un subconjunto pequeño y con más peso que la lista libre de
+// compatibles, que sigue siendo ilimitada.
+export const FAVORITES_MAX = 3;
 
 /** Public, non-confidential shape — safe to send to unauthenticated clients. */
 export interface PublicUnit {
@@ -199,9 +227,9 @@ export interface SurveyResponse {
   priorityPref: PriorityPref | null;
   availability: string | null;
   freeText: string | null;
-  availNavidad: boolean;
-  availSemanaSanta: boolean;
-  availVerano: boolean;
+  availNavidad: CampAvailability;
+  availSemanaSanta: CampAvailability;
+  availVerano: CampAvailability;
   mtlSelfStatus: SurveyMtlStatus | null;
   rolesText: string | null;
   prefCastores: number | null;
@@ -209,10 +237,14 @@ export interface SurveyResponse {
   prefTropa: number | null;
   prefEscultas: number | null;
   prefClan: number | null;
+  previousUnitId: string | null;
+  yearsInUnit: number | null;
+  unitContinuity: UnitContinuity | null;
+  branchPriorityOrder: Branch[] | null;
   submittedAt: string;
 }
 
-export type CompatibilityType = "compatible" | "exclusion";
+export type CompatibilityType = "compatible" | "exclusion" | "favorito";
 
 export interface SurveyCompatibility {
   scouterId: string;

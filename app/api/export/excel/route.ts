@@ -23,7 +23,7 @@ export async function GET() {
     { header: "Scouter", width: 24 },
     { header: "Unidad", width: 28 },
   ];
-  sheet.addRow(["Scouter", "Unidad"]);
+  sheet.getRow(1).font = { bold: true };
 
   for (const scouter of scouters) {
     const unitId = unitByScouter.get(scouter.id);

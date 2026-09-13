@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 const ITEMS = [
   { href: "/admin/board", label: "Tablero" },
+  { href: "/admin/analitica", label: "Analítica" },
   { href: "/admin/scouters", label: "Scouters" },
   { href: "/admin/respuestas", label: "Respuestas" },
   { href: "/admin/units", label: "Unidades" },

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { dbAll } from "@/lib/db";
 import { getCurrentAdmin } from "@/lib/auth";
 import { addScouter, adminResetScouterPassword, upsertScouterScore } from "@/app/actions";
+import { ScouterDangerActions } from "@/components/ScouterDangerActions";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,12 @@ export default async function AdminScoutersPage() {
 
   const registeredIds = new Set(
     (await dbAll<{ scouter_id: string }>("SELECT scouter_id FROM scouter_users")).map(
+      (r) => r.scouter_id,
+    ),
+  );
+
+  const adminIds = new Set(
+    (await dbAll<{ scouter_id: string }>("SELECT scouter_id FROM admin_users")).map(
       (r) => r.scouter_id,
     ),
   );
@@ -57,15 +64,22 @@ export default async function AdminScoutersPage() {
         {scouters.map((scouter) => {
           const score = scoreByScouter.get(scouter.id);
           const registered = registeredIds.has(scouter.id);
+          const isAdmin = adminIds.has(scouter.id);
+          const active = scouter.active === 1;
           return (
-            <div key={scouter.id}>
+            <div key={scouter.id} className={active ? undefined : "opacity-60"}>
             <form
               action={upsertScouterScore}
               className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-6"
             >
               <input type="hidden" name="scouterId" value={scouter.id} />
-              <div className="col-span-2 flex items-center text-sm font-medium text-foreground sm:col-span-1">
+              <div className="col-span-2 flex items-center gap-2 text-sm font-medium text-foreground sm:col-span-1">
                 {scouter.name}
+                {!active && (
+                  <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-muted">
+                    Oculto
+                  </span>
+                )}
               </div>
               <label className="flex flex-col gap-1 text-xs text-muted">
                 Año
@@ -157,6 +171,14 @@ export default async function AdminScoutersPage() {
                   </button>
                 </form>
               )}
+              <div className="ml-auto">
+                <ScouterDangerActions
+                  scouterId={scouter.id}
+                  scouterName={scouter.name}
+                  active={active}
+                  isAdmin={isAdmin}
+                />
+              </div>
             </div>
             </div>
           );

@@ -14,7 +14,7 @@ async function loadBoardData() {
     await dbAll<{ id: string; name: string; category: UnitCategory; color: string; sortOrder: number }>(
       "SELECT id, name, category, color, sort_order AS sortOrder FROM units ORDER BY sort_order",
     )
-  ).map((u) => ({ ...u }));
+  ).map((u) => ({ id: u.id, name: u.name, category: u.category, color: u.color, sortOrder: u.sortOrder }));
 
   const scouterRows = await dbAll<{ id: string; name: string }>(
     "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",

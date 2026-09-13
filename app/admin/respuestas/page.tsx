@@ -1,24 +1,26 @@
 import { redirect } from "next/navigation";
 import { dbAll } from "@/lib/db";
 import { getCurrentAdmin } from "@/lib/auth";
+import { computeSurveyTotalBudget } from "@/lib/surveyBudget";
 import {
   BRANCH_LABEL,
   BRANCHES,
-  CAMP_AVAILABILITY_POINTS,
+  CAMP_AVAILABILITY_LABEL,
   CAMP_SEASONS,
   CAMP_SEASON_LABEL,
   CARGO_LABEL,
   CARGO_POINTS,
   COMISION_LABEL,
   COMISION_POINTS,
-  MTL_TITLE_POINTS,
-  SURVEY_POINTS_BUDGET,
   SURVEY_VETO_COST,
   SURVEY_MTL_LABEL,
+  UNIT_CONTINUITY_LABEL,
+  type CampAvailability,
   type CargoRole,
   type ComisionRole,
   type PriorityPref,
   type SurveyMtlStatus,
+  type UnitContinuity,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -51,9 +53,9 @@ export default async function AdminRespuestasPage() {
     priorityPref: PriorityPref | null;
     availability: string | null;
     freeText: string | null;
-    availNavidad: number;
-    availSemanaSanta: number;
-    availVerano: number;
+    availNavidad: CampAvailability;
+    availSemanaSanta: CampAvailability;
+    availVerano: CampAvailability;
     mtlSelfStatus: SurveyMtlStatus | null;
     rolesText: string | null;
     castores: number | null;
@@ -61,13 +63,19 @@ export default async function AdminRespuestasPage() {
     tropa: number | null;
     escultas: number | null;
     clan: number | null;
+    previousUnitId: string | null;
+    yearsInUnit: number | null;
+    unitContinuity: UnitContinuity | null;
+    branchPriorityOrder: string | null;
     submittedAt: string;
   }>(
     `SELECT scouter_id AS scouterId, priority_pref AS priorityPref, availability, free_text AS freeText,
             avail_navidad AS availNavidad, avail_semana_santa AS availSemanaSanta,
             avail_verano AS availVerano, mtl_self_status AS mtlSelfStatus, roles_text AS rolesText,
             pref_castores AS castores, pref_lobatos AS lobatos, pref_tropa AS tropa,
-            pref_escultas AS escultas, pref_clan AS clan, submitted_at AS submittedAt
+            pref_escultas AS escultas, pref_clan AS clan, previous_unit_id AS previousUnitId,
+            years_in_unit AS yearsInUnit, unit_continuity AS unitContinuity,
+            branch_priority_order AS branchPriorityOrder, submitted_at AS submittedAt
      FROM survey_responses WHERE source = 'web'`,
   );
 
@@ -90,13 +98,19 @@ export default async function AdminRespuestasPage() {
   const compatRows = await dbAll<{
     scouterId: string;
     otherId: string;
-    type: "compatible" | "exclusion";
+    type: "compatible" | "exclusion" | "favorito";
   }>("SELECT scouter_id AS scouterId, other_scouter_id AS otherId, type FROM survey_compatibility");
 
   const compatByScouter = new Map<string, string[]>();
   const exclusionByScouter = new Map<string, string[]>();
+  const favoriteByScouter = new Map<string, string[]>();
   for (const row of compatRows) {
-    const target = row.type === "compatible" ? compatByScouter : exclusionByScouter;
+    const target =
+      row.type === "compatible"
+        ? compatByScouter
+        : row.type === "favorito"
+          ? favoriteByScouter
+          : exclusionByScouter;
     const list = target.get(row.scouterId) ?? [];
     list.push(nameById.get(row.otherId) ?? row.otherId);
     target.set(row.scouterId, list);
@@ -113,6 +127,7 @@ export default async function AdminRespuestasPage() {
   const units = await dbAll<{ id: string; name: string }>(
     "SELECT id, name FROM units ORDER BY sort_order",
   );
+  const unitNameById = new Map(units.map((u) => [u.id, u.name]));
 
   const proposalRows = await dbAll<{ id: string; ownerId: string; submittedAt: string }>(
     `SELECT proposals.id AS id, proposals.owner_id AS ownerId, proposals.submitted_at AS submittedAt
@@ -180,16 +195,14 @@ export default async function AdminRespuestasPage() {
           {responded.map((r) => {
             const cargoCount = (cargosByScouter.get(r.scouterId) ?? []).length;
             const comisionCount = (comisionesByScouter.get(r.scouterId) ?? []).length;
-            const campSiCount = [r.availNavidad, r.availSemanaSanta, r.availVerano].filter(
-              Boolean,
-            ).length;
-            const mtlBonus = r.mtlSelfStatus === "si" ? MTL_TITLE_POINTS : 0;
-            const totalBudget =
-              SURVEY_POINTS_BUDGET +
-              cargoCount * CARGO_POINTS +
-              comisionCount * COMISION_POINTS +
-              campSiCount * CAMP_AVAILABILITY_POINTS +
-              mtlBonus;
+            const totalBudget = computeSurveyTotalBudget({
+              cargoCount,
+              comisionCount,
+              availNavidad: r.availNavidad,
+              availSemanaSanta: r.availSemanaSanta,
+              availVerano: r.availVerano,
+              mtlSelfStatus: r.mtlSelfStatus,
+            });
             const spentOnBranches = BRANCHES.reduce((sum, b) => sum + (r[b] ?? 0), 0);
             const vetoCount = (exclusionByScouter.get(r.scouterId) ?? []).length;
             const spentOnVetoes = vetoCount * SURVEY_VETO_COST;
@@ -241,16 +254,41 @@ export default async function AdminRespuestasPage() {
                   </span>
                 </p>
                 <p className="text-xs text-muted">
-                  Disponible en:{" "}
+                  Disponibilidad:{" "}
                   <span className="text-foreground">
-                    {CAMP_SEASONS.filter(
+                    {CAMP_SEASONS.map(
                       (season) =>
-                        (season === "navidad" && r.availNavidad) ||
-                        (season === "semana_santa" && r.availSemanaSanta) ||
-                        (season === "verano" && r.availVerano),
-                    )
-                      .map((season) => CAMP_SEASON_LABEL[season])
-                      .join(", ") || "ninguno marcado"}
+                        `${CAMP_SEASON_LABEL[season]}: ${CAMP_AVAILABILITY_LABEL[r[
+                          season === "navidad"
+                            ? "availNavidad"
+                            : season === "semana_santa"
+                              ? "availSemanaSanta"
+                              : "availVerano"
+                        ]]}`,
+                    ).join(" · ")}
+                  </span>
+                </p>
+                <p className="text-xs text-muted">
+                  Unidad curso 25/26:{" "}
+                  <span className="text-foreground">
+                    {r.previousUnitId ? unitNameById.get(r.previousUnitId) ?? "—" : "—"}
+                    {r.yearsInUnit !== null ? ` (${r.yearsInUnit} años)` : ""}
+                  </span>
+                  {" · "}
+                  Seguiría en la unidad:{" "}
+                  <span className="text-foreground">
+                    {r.unitContinuity ? UNIT_CONTINUITY_LABEL[r.unitContinuity] : "—"}
+                  </span>
+                </p>
+                <p className="text-xs text-muted">
+                  Orden de prioridad de secciones:{" "}
+                  <span className="text-foreground">
+                    {r.branchPriorityOrder
+                      ? r.branchPriorityOrder
+                          .split(",")
+                          .map((b) => BRANCH_LABEL[b as keyof typeof BRANCH_LABEL] ?? b)
+                          .join(" > ")
+                      : "—"}
                   </span>
                 </p>
                 <p className="text-xs text-muted">
@@ -261,6 +299,12 @@ export default async function AdminRespuestasPage() {
                   Título MTL:{" "}
                   <span className="text-foreground">
                     {r.mtlSelfStatus ? SURVEY_MTL_LABEL[r.mtlSelfStatus] : "—"}
+                  </span>
+                </p>
+                <p className="text-xs text-muted">
+                  Favoritos:{" "}
+                  <span className="text-foreground">
+                    {(favoriteByScouter.get(r.scouterId) ?? []).join(", ") || "—"}
                   </span>
                 </p>
                 <p className="text-xs text-muted">
@@ -291,7 +335,15 @@ export default async function AdminRespuestasPage() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-muted">Propuestas de parrilla</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-muted">Propuestas de parrilla</h2>
+          <a
+            href="/api/export/excel/propuestas"
+            className="whitespace-nowrap rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-foreground hover:border-accent"
+          >
+            Exportar propuestas a Excel
+          </a>
+        </div>
         <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
           {proposals.map((p) => (
             <details key={p.id} className="p-4">

@@ -91,6 +91,14 @@ export default async function AgileCouncilDetailPage({
     submittedAt: r.submittedAt,
   }));
 
+  const activeScouters = await dbAll<{ id: string; name: string }>(
+    "SELECT id, name FROM scouters WHERE active = 1 ORDER BY name",
+  );
+  const respondedIds = new Set(responses.map((r) => r.scouterId));
+  const pendingNames = activeScouters
+    .filter((s) => !respondedIds.has(s.id))
+    .map((s) => s.name);
+
   const own = responses.find((r) => r.scouterId === currentScouter.scouterId) ?? null;
   const deadline = council.eventDate ? getAgileResponseDeadline(council.eventDate) : null;
   const deadlineLabel = deadline
@@ -182,6 +190,8 @@ export default async function AgileCouncilDetailPage({
       <AgileCouncilResponsesToggle
         responses={responses}
         currentScouterId={currentScouter.scouterId}
+        pendingNames={pendingNames}
+        slug={council.slug}
       />
 
       <p className="rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted">

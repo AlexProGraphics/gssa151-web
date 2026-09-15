@@ -377,8 +377,7 @@ async function ensureSeedAgileCouncils(db: Client) {
     "https://app.notion.com/p/gabrielgarciaagui/Plan-de-Consejos-Consejos-AGILE-3d8f7451414f80e99b02f19a9c7ea5c4";
   const calendarLink =
     "https://gabrielgarciaagui.notion.site/Mapeo-y-Viabilidad-de-Fines-de-Semana-Calendario-Ronda-2026-2027-3d8f7451414f81bfb041fd957e550339?source=copy_link";
-  const calendarDriveLink =
-    "https://drive.google.com/file/d/17PgTGUE9XkIw6-QHIYX4sds-JTrmJGzT/view?usp=drive_link";
+  const calendarDriveLink = "https://drive.google.com/drive/folders/1bNhSdnOXsXA3nlwb6UyYNAriQrOd5jAx";
 
   await db.execute({
     sql: `INSERT INTO agile_councils

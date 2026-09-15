@@ -6,13 +6,18 @@ import { AGILE_PAG_AMBITOS, AGILE_PAG_AMBITO_LABEL, type AgileCouncilResponse } 
 /** Desplegable "Ver respuestas de los demás" — todas las respuestas de este
  * consejo son públicas para el kraal (ver disclaimer en la página), así que
  * cualquier scouter logueado puede abrir esto y ver lo que ha puesto cada
- * uno. Colapsado por defecto para no saturar la página con el formulario. */
+ * uno, buscar por nombre, ver quién falta por responder y exportarlo todo a
+ * Excel. Colapsado por defecto para no saturar la página con el formulario. */
 export function AgileCouncilResponsesToggle({
   responses,
   currentScouterId,
+  pendingNames,
+  slug,
 }: {
   responses: AgileCouncilResponse[];
   currentScouterId: string;
+  pendingNames: string[];
+  slug: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -20,22 +25,34 @@ export function AgileCouncilResponsesToggle({
   const filtered = responses.filter((r) =>
     r.scouterName.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  const total = responses.length + pendingNames.length;
 
   return (
     <div className="rounded-lg border border-border">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium text-foreground"
-      >
-        <span>
-          Ver respuestas de los demás{" "}
-          <span className="text-muted">({responses.length})</span>
-        </span>
-        <span aria-hidden className="text-xs text-muted">
-          {open ? "▲" : "▼"}
-        </span>
-      </button>
+      <div className="flex items-center gap-2 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex flex-1 items-center justify-between gap-2 text-left text-sm font-medium text-foreground"
+        >
+          <span>
+            Ver respuestas de los demás{" "}
+            <span className="text-muted">
+              ({responses.length}
+              {total > 0 ? ` de ${total}` : ""})
+            </span>
+          </span>
+          <span aria-hidden className="text-xs text-muted">
+            {open ? "▲" : "▼"}
+          </span>
+        </button>
+        <a
+          href={`/api/export/excel/consejo-agile/${slug}`}
+          className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:border-accent"
+        >
+          Exportar a Excel
+        </a>
+      </div>
 
       {open && (
         <div className="flex flex-col gap-3 border-t border-border p-4">
@@ -65,6 +82,15 @@ export function AgileCouncilResponsesToggle({
                 )}
               </div>
             </>
+          )}
+
+          {pendingNames.length > 0 && (
+            <details className="rounded-md border border-border bg-surface p-3 text-xs text-muted">
+              <summary className="cursor-pointer font-medium text-foreground">
+                Todavía no han respondido ({pendingNames.length})
+              </summary>
+              <p className="mt-2">{pendingNames.join(", ")}</p>
+            </details>
           )}
         </div>
       )}

@@ -3,4 +3,4 @@
 // como parte de un push real a GitHub — nunca por cambios que solo existen
 // en local. Un salto de versión mayor (v2, v3...) solo se hace si el
 // usuario lo pide explícitamente.
-export const APP_VERSION = "v1.2";
+export const APP_VERSION = "v1.3";

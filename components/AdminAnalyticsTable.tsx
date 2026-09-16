@@ -1,56 +1,9 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import type { AnalyticsRow, AnalyticsMetrics } from "@/lib/analytics";
 
-export interface AnalyticsRow {
-  id: string;
-  name: string;
-  active: boolean;
-  isAdmin: boolean;
-  registered: boolean;
-  unitName: string | null;
-  unitCategory: string | null;
-  surveyResponded: boolean;
-  surveySubmittedAt: string | null;
-  priorityPref: "seccion" | "equipo" | null;
-  availNavidadLabel: string | null;
-  availSemanaSantaLabel: string | null;
-  availVeranoLabel: string | null;
-  mtlSelfLabel: string | null;
-  cargos: string[];
-  comisiones: string[];
-  totalBudget: number | null;
-  spentOnBranches: number | null;
-  vetoCount: number;
-  budgetRemaining: number | null;
-  compatibles: string[];
-  incompatibles: string[];
-  favoritos: string[];
-  previousUnitName: string | null;
-  yearsInUnit: number | null;
-  unitContinuityLabel: string | null;
-  branchPriorityOrder: string[] | null;
-  birthYear: number | null;
-  mtlAdminLabel: string | null;
-  totalExperienceYears: number | null;
-  confianza: number | null;
-  liderScore: number | null;
-  proposalsCount: number;
-  lastProposalAt: string | null;
-}
-
-export interface AnalyticsMetrics {
-  totalActive: number;
-  respondedCount: number;
-  registeredCount: number;
-  proposalsTotal: number;
-  scoutersWithProposal: number;
-  assignedCount: number;
-  mtlYesCount: number;
-  totalVetoes: number;
-  avgConfianza: number | null;
-  avgLider: number | null;
-}
+export type { AnalyticsRow, AnalyticsMetrics };
 
 type SortKey =
   | "name"

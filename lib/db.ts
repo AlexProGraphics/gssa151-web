@@ -171,6 +171,22 @@ async function migrate(db: Client) {
     await db.execute("ALTER TABLE agile_councils ADD COLUMN calendar_drive_link TEXT;");
   }
 
+  // agile_moderation_interventions ganó agenda_item_id después de crearse —
+  // liga cada turno a un punto del orden del día (ver
+  // agile_moderation_agenda_items más abajo) para poder calcular cuántas
+  // intervenciones le quedan a cada uno en ese punto. NULL = turno libre,
+  // sin punto asociado (comportamiento de antes de este cambio).
+  const interventionCols = new Set(
+    ((await db.execute("PRAGMA table_info(agile_moderation_interventions)")).rows as unknown as {
+      name: string;
+    }[]).map((c) => c.name),
+  );
+  if (interventionCols.size > 0 && !interventionCols.has("agenda_item_id")) {
+    await db.execute(
+      "ALTER TABLE agile_moderation_interventions ADD COLUMN agenda_item_id TEXT REFERENCES agile_moderation_agenda_items(id);",
+    );
+  }
+
   await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS units (
       id TEXT PRIMARY KEY,
@@ -350,6 +366,74 @@ async function migrate(db: Client) {
       ruegos_preguntas TEXT,
       submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (council_id, scouter_id)
+    );
+
+    -- Quién participa en el panel de moderación de turno de palabra de un
+    -- consejo (ver /admin/consejos-agile/[slug]/moderacion): se siembra solo
+    -- con quien haya respondido agile_council_responses, y el admin puede
+    -- añadir a más gente a mano (added_manually) marcándola penalizada
+    -- (solo temporizador de 15s) si no respondió la encuesta.
+    CREATE TABLE IF NOT EXISTS agile_moderation_participants (
+      council_id TEXT NOT NULL REFERENCES agile_councils(id) ON DELETE CASCADE,
+      scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,
+      penalized INTEGER NOT NULL DEFAULT 0,
+      added_manually INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (council_id, scouter_id)
+    );
+
+    -- Cada turno de palabra cronometrado. started_at/ended_at se guardan en
+    -- ISO 8601 generado en JS (no con el datetime('now') de SQLite, que no
+    -- lleva zona horaria y el navegador lo interpretaría mal) para poder
+    -- recalcular la cuenta atrás real si se recarga la página a mitad de un
+    -- turno. ended_at/elapsed_seconds quedan NULL mientras el turno sigue
+    -- abierto.
+    CREATE TABLE IF NOT EXISTS agile_moderation_interventions (
+      id TEXT PRIMARY KEY,
+      council_id TEXT NOT NULL REFERENCES agile_councils(id) ON DELETE CASCADE,
+      scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,
+      duration_seconds INTEGER NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      elapsed_seconds INTEGER
+    );
+
+    -- Orden del día de un consejo, sembrado una vez por consejo (ver
+    -- ensureAgendaSeeded en lib/agileModeration.ts) con la plantilla real de
+    -- puntos de un consejo AGILE. group_label solo agrupa visualmente varios
+    -- puntos bajo un mismo título (los 4 ámbitos del PAG) — cada fila sigue
+    -- siendo un punto independiente con su propio tiempo y turnos.
+    -- survey_field liga el punto a una columna de agile_council_responses:
+    -- quien escribió algo ahí tiene un turno por defecto en ese punto (ver
+    -- SURVEY_FIELD_COLUMN). turn_seconds fija la duración del turno cuando
+    -- el punto la exige (los 30s de cada ámbito del PAG); si es NULL, se
+    -- elige la duración con los botones de siempre (60/30/15).
+    -- started_at/accumulated_seconds funcionan igual que en las
+    -- intervenciones: started_at en marcha = sigue sumando tiempo real desde
+    -- esa hora; al pausar se vuelca a accumulated_seconds y se limpia.
+    CREATE TABLE IF NOT EXISTS agile_moderation_agenda_items (
+      id TEXT PRIMARY KEY,
+      council_id TEXT NOT NULL REFERENCES agile_councils(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL,
+      group_label TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      planned_minutes REAL NOT NULL,
+      survey_field TEXT,
+      turn_seconds INTEGER,
+      started_at TEXT,
+      accumulated_seconds INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- Intervenciones extra que un admin concede a alguien en un punto
+    -- concreto, por encima del turno por defecto que le da haber escrito
+    -- algo en el apartado de la encuesta correspondiente a ese punto.
+    CREATE TABLE IF NOT EXISTS agile_moderation_intervention_grants (
+      council_id TEXT NOT NULL REFERENCES agile_councils(id) ON DELETE CASCADE,
+      scouter_id TEXT NOT NULL REFERENCES scouters(id) ON DELETE CASCADE,
+      agenda_item_id TEXT NOT NULL REFERENCES agile_moderation_agenda_items(id) ON DELETE CASCADE,
+      extra_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (council_id, scouter_id, agenda_item_id)
     );
   `);
 

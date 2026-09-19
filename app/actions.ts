@@ -787,3 +787,205 @@ export async function submitAgileCouncilResponse(formData: FormData) {
   revalidatePath(`/consejos-agile/${slug}`);
   redirect(`/consejos-agile/${slug}?ok=1`);
 }
+
+// --- Moderación de turno de palabra (Consejos AGILE) ---
+
+const AGILE_TURN_DURATIONS = [15, 30, 60];
+
+/** Admin: añade a mano a alguien al panel de moderación. Si no respondió la
+ * encuesta, el admin decide aquí mismo si entra "penalizado" (temporizador
+ * fijo de 15s) o con las mismas condiciones que el resto. */
+export async function addAgileModerationParticipant(formData: FormData) {
+  await requireAdmin();
+
+  const councilId = String(formData.get("councilId") ?? "");
+  const slug = String(formData.get("slug") ?? "");
+  const scouterId = String(formData.get("scouterId") ?? "");
+  const penalized = formData.get("penalized") === "1";
+  if (!councilId || !scouterId) throw new Error("Falta el consejo o la persona a añadir.");
+
+  await dbRun(
+    `INSERT INTO agile_moderation_participants (council_id, scouter_id, penalized, added_manually)
+     VALUES (?, ?, ?, 1)
+     ON CONFLICT(council_id, scouter_id) DO UPDATE SET penalized = excluded.penalized`,
+    [councilId, scouterId, penalized ? 1 : 0],
+  );
+
+  revalidatePath(`/admin/consejos-agile/${slug}/moderacion`);
+}
+
+/** Admin: quita a alguien del panel — borra también su historial de turnos
+ * de este consejo, para no dejar tiempos huérfanos de quien ya no aparece. */
+export async function removeAgileModerationParticipant(formData: FormData) {
+  await requireAdmin();
+
+  const councilId = String(formData.get("councilId") ?? "");
+  const slug = String(formData.get("slug") ?? "");
+  const scouterId = String(formData.get("scouterId") ?? "");
+  if (!councilId || !scouterId) throw new Error("Falta el consejo o la persona.");
+
+  await dbRun(
+    "DELETE FROM agile_moderation_participants WHERE council_id = ? AND scouter_id = ?",
+    [councilId, scouterId],
+  );
+  await dbRun(
+    "DELETE FROM agile_moderation_interventions WHERE council_id = ? AND scouter_id = ?",
+    [councilId, scouterId],
+  );
+
+  revalidatePath(`/admin/consejos-agile/${slug}/moderacion`);
+}
+
+/**
+ * Admin: arranca el temporizador de turno de palabra de una persona. Solo
+ * puede haber un turno "abierto" a la vez por consejo — si ya había uno (de
+ * otra persona, o de una pestaña distinta), se cierra primero registrando
+ * el tiempo real transcurrido, igual que si se hubiera pulsado "Detener".
+ * No se llama directamente desde un <form>, sino desde el panel cliente
+ * (onClick) para poder devolver el id/hora de inicio y arrancar la cuenta
+ * atrás en el momento — por eso no lleva revalidatePath, el propio cliente
+ * actualiza su estado local.
+ */
+export async function startAgileIntervention(
+  councilId: string,
+  scouterId: string,
+  durationSeconds: number,
+  agendaItemId: string | null,
+): Promise<{ id: string; startedAt: string }> {
+  await requireAdmin();
+  if (!AGILE_TURN_DURATIONS.includes(durationSeconds)) {
+    throw new Error("Duración de temporizador no válida.");
+  }
+
+  const open = await dbGet<{ id: string; startedAt: string }>(
+    `SELECT id, started_at AS startedAt FROM agile_moderation_interventions
+     WHERE council_id = ? AND ended_at IS NULL`,
+    [councilId],
+  );
+  if (open) {
+    const elapsed = Math.round((Date.now() - new Date(open.startedAt).getTime()) / 1000);
+    await dbRun(
+      "UPDATE agile_moderation_interventions SET ended_at = ?, elapsed_seconds = ? WHERE id = ?",
+      [new Date().toISOString(), Math.max(0, elapsed), open.id],
+    );
+  }
+
+  const id = crypto.randomUUID();
+  const startedAt = new Date().toISOString();
+  await dbRun(
+    `INSERT INTO agile_moderation_interventions (id, council_id, scouter_id, duration_seconds, started_at, agenda_item_id)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, councilId, scouterId, durationSeconds, startedAt, agendaItemId],
+  );
+
+  return { id, startedAt };
+}
+
+/** Admin: cierra el turno en marcha (a mano, o porque se agotó el tiempo) y
+ * registra el tiempo real hablado. Ver nota de startAgileIntervention sobre
+ * por qué no lleva revalidatePath. */
+export async function stopAgileIntervention(interventionId: string, elapsedSeconds: number) {
+  await requireAdmin();
+
+  await dbRun(
+    `UPDATE agile_moderation_interventions
+     SET ended_at = ?, elapsed_seconds = ?
+     WHERE id = ? AND ended_at IS NULL`,
+    [new Date().toISOString(), Math.max(0, Math.round(elapsedSeconds)), interventionId],
+  );
+}
+
+// --- Orden del día del consejo (Consejos AGILE) ---
+
+/**
+ * Admin: marca un punto del orden del día como "en curso" — solo puede
+ * haber uno activo a la vez por consejo, así que si había otro en marcha se
+ * pausa antes (igual que startAgileIntervention con los turnos de palabra).
+ * Llamada directa desde el panel cliente, no desde un <form>.
+ */
+export async function startAgendaItem(
+  councilId: string,
+  agendaItemId: string,
+): Promise<{ startedAt: string }> {
+  await requireAdmin();
+
+  const running = await dbAll<{ id: string; startedAt: string }>(
+    `SELECT id, started_at AS startedAt FROM agile_moderation_agenda_items
+     WHERE council_id = ? AND started_at IS NOT NULL`,
+    [councilId],
+  );
+  for (const item of running) {
+    const delta = Math.round((Date.now() - new Date(item.startedAt).getTime()) / 1000);
+    await dbRun(
+      `UPDATE agile_moderation_agenda_items
+       SET started_at = NULL, accumulated_seconds = accumulated_seconds + ?
+       WHERE id = ?`,
+      [Math.max(0, delta), item.id],
+    );
+  }
+
+  const startedAt = new Date().toISOString();
+  await dbRun(
+    "UPDATE agile_moderation_agenda_items SET started_at = ? WHERE id = ? AND council_id = ?",
+    [startedAt, agendaItemId, councilId],
+  );
+
+  return { startedAt };
+}
+
+/** Admin: pausa el punto en marcha, volcando el tiempo corrido a
+ * accumulated_seconds. Ver nota de stopAgileIntervention sobre por qué no
+ * lleva revalidatePath. */
+export async function pauseAgendaItem(agendaItemId: string, elapsedDeltaSeconds: number) {
+  await requireAdmin();
+
+  await dbRun(
+    `UPDATE agile_moderation_agenda_items
+     SET started_at = NULL, accumulated_seconds = accumulated_seconds + ?
+     WHERE id = ? AND started_at IS NOT NULL`,
+    [Math.max(0, Math.round(elapsedDeltaSeconds)), agendaItemId],
+  );
+}
+
+/** Admin: cambia los minutos planificados de un punto del orden del día. */
+export async function updateAgendaItemMinutes(formData: FormData) {
+  await requireAdmin();
+
+  const agendaItemId = String(formData.get("agendaItemId") ?? "");
+  const slug = String(formData.get("slug") ?? "");
+  const plannedMinutes = Number(formData.get("plannedMinutes"));
+  if (!agendaItemId || !Number.isFinite(plannedMinutes) || plannedMinutes <= 0) {
+    throw new Error("Minutos no válidos.");
+  }
+
+  await dbRun("UPDATE agile_moderation_agenda_items SET planned_minutes = ? WHERE id = ?", [
+    plannedMinutes,
+    agendaItemId,
+  ]);
+
+  revalidatePath(`/admin/consejos-agile/${slug}/moderacion`);
+}
+
+/** Admin: concede una intervención extra a alguien en un punto concreto,
+ * por encima del turno por defecto que le da haber respondido ese apartado
+ * de la encuesta (ver getAgendaEntitlements en lib/agileModeration.ts). */
+export async function grantExtraAgileIntervention(formData: FormData) {
+  await requireAdmin();
+
+  const councilId = String(formData.get("councilId") ?? "");
+  const slug = String(formData.get("slug") ?? "");
+  const scouterId = String(formData.get("scouterId") ?? "");
+  const agendaItemId = String(formData.get("agendaItemId") ?? "");
+  if (!councilId || !scouterId || !agendaItemId) {
+    throw new Error("Falta el consejo, la persona o el punto del orden del día.");
+  }
+
+  await dbRun(
+    `INSERT INTO agile_moderation_intervention_grants (council_id, scouter_id, agenda_item_id, extra_count)
+     VALUES (?, ?, ?, 1)
+     ON CONFLICT(council_id, scouter_id, agenda_item_id) DO UPDATE SET extra_count = extra_count + 1`,
+    [councilId, scouterId, agendaItemId],
+  );
+
+  revalidatePath(`/admin/consejos-agile/${slug}/moderacion`);
+}

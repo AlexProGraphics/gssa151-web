@@ -138,11 +138,19 @@ export default async function AdminAgileCouncilsPage() {
                 /consejos-agile/{council.slug} →
               </Link>
             </div>
-            <AgileCouncilDangerActions
-              councilId={council.id}
-              councilTitle={council.title}
-              active={council.active}
-            />
+            <div className="flex items-center gap-3">
+              <Link
+                href={`/admin/consejos-agile/${council.slug}/moderacion`}
+                className="rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10"
+              >
+                Moderación
+              </Link>
+              <AgileCouncilDangerActions
+                councilId={council.id}
+                councilTitle={council.title}
+                active={council.active}
+              />
+            </div>
           </div>
         ))}
       </div>

@@ -4,6 +4,7 @@ import { dbAll } from "@/lib/db";
 import { getCurrentAdmin, getCurrentUser } from "@/lib/auth";
 import { listPendingAgileCouncilIds } from "@/lib/agileCouncils";
 import { isSurveyPending } from "@/lib/surveyStatus";
+import { isKraalOutingPending } from "@/lib/kraalOuting";
 import { LoginWidget } from "./LoginWidget";
 import { LogoutButton } from "./AdminActions";
 import { AdminNavDropdown } from "./AdminNavDropdown";
@@ -24,6 +25,9 @@ export async function SiteHeader() {
   const pendingAgileCouncilIds = user ? await listPendingAgileCouncilIds(user.scouterId) : new Set<string>();
   // Mismo patrón para la encuesta de preferencias (miércoles 23:59).
   const surveyPending = user ? await isSurveyPending(user.scouterId) : false;
+  // Sin plazo (a diferencia de las anteriores): sigue encendido hasta que
+  // envíes la encuesta de asistencia Y marques la presentación como subida.
+  const kraalOutingPending = user ? await isKraalOutingPending(user.scouterId) : false;
 
   let scouters: { id: string; name: string }[] = [];
   let registeredIds: string[] = [];
@@ -60,6 +64,12 @@ export async function SiteHeader() {
           </Link>
           <Link href="/mi-parrilla" className={NAV_LINK}>
             Crea tu parrilla
+          </Link>
+          <Link href="/salida-kraal" className={`${NAV_LINK} relative inline-flex items-center`}>
+            Salida de Kraal
+            {kraalOutingPending && (
+              <UnreadDot label="Tienes pendiente la encuesta de asistencia o subir tu presentación de la Salida de Kraal" />
+            )}
           </Link>
           <Link
             href="/consejos-agile"

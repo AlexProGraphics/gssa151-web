@@ -435,6 +435,24 @@ async function migrate(db: Client) {
       extra_count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (council_id, scouter_id, agenda_item_id)
     );
+
+    -- Una fila = el estado de una persona para la Salida de Kraal (única,
+    -- no hay tabla de "salidas" genérica como agile_councils porque de
+    -- momento solo hay una y su contenido va fijo en lib/kraalOuting.ts).
+    -- attending/staysUntilEnd/pptUploaded son 3 estados independientes que
+    -- se marcan a la vez en el mismo formulario, pero se leen por separado
+    -- para saber qué le falta a cada uno (ver lib/kraalOuting.ts).
+    CREATE TABLE IF NOT EXISTS kraal_outing_responses (
+      scouter_id TEXT PRIMARY KEY REFERENCES scouters(id) ON DELETE CASCADE,
+      -- 'si' | 'no'.
+      attending TEXT NOT NULL DEFAULT 'si',
+      arrival_note TEXT,
+      stays_until_end INTEGER NOT NULL DEFAULT 1,
+      departure_note TEXT,
+      comments TEXT,
+      ppt_uploaded INTEGER NOT NULL DEFAULT 0,
+      submitted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   await ensureSeedAgileCouncils(db);

@@ -989,3 +989,45 @@ export async function grantExtraAgileIntervention(formData: FormData) {
 
   revalidatePath(`/admin/consejos-agile/${slug}/moderacion`);
 }
+
+// --- Salida de Kraal ---
+
+/** Encuesta de asistencia + confirmación de PPT subido, todo en una fila
+ * (ver kraal_outing_responses en lib/db.ts). Solo se admite una fila por
+ * persona: reenviar el formulario actualiza la respuesta anterior. */
+export async function submitKraalOutingSurvey(formData: FormData) {
+  const { scouterId } = await requireScouter();
+
+  const attending = formData.get("attending") === "no" ? "no" : "si";
+  const arrivalNote = String(formData.get("arrivalNote") ?? "").trim() || null;
+  const staysUntilEnd = formData.get("staysUntilEnd") === "1";
+  const departureNote = String(formData.get("departureNote") ?? "").trim() || null;
+  const comments = String(formData.get("comments") ?? "").trim() || null;
+  const pptUploaded = formData.get("pptUploaded") === "1";
+
+  await dbRun(
+    `INSERT INTO kraal_outing_responses
+      (scouter_id, attending, arrival_note, stays_until_end, departure_note, comments, ppt_uploaded, submitted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(scouter_id) DO UPDATE SET
+       attending = excluded.attending,
+       arrival_note = excluded.arrival_note,
+       stays_until_end = excluded.stays_until_end,
+       departure_note = excluded.departure_note,
+       comments = excluded.comments,
+       ppt_uploaded = excluded.ppt_uploaded,
+       submitted_at = excluded.submitted_at`,
+    [
+      scouterId,
+      attending,
+      arrivalNote,
+      staysUntilEnd ? 1 : 0,
+      departureNote,
+      comments,
+      pptUploaded ? 1 : 0,
+    ],
+  );
+
+  revalidatePath("/salida-kraal");
+  redirect("/salida-kraal?ok=1");
+}
